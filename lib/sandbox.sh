@@ -246,6 +246,7 @@ run_in_sandbox() {
 }
 
 # Copy a file to a system location with proper permissions
+# Uses elevated privileges if needed for system directories
 copy_to_system_location() {
     local source_file="$1"
     local target_path="$2"
@@ -256,9 +257,24 @@ copy_to_system_location() {
         
         # Try using sudo
         if command -v sudo >/dev/null 2>&1; then
-            sudo cp "$source_file" "$target_path" && \
-            echo "✓ Successfully copied file using sudo"
-            return $?
+            # Create a temporary script to run with sudo
+            local tmp_script="${CMGR_HOME}/tmp/copy_script.$.sh"
+            mkdir -p "${CMGR_HOME}/tmp"
+            
+            cat > "$tmp_script" << EOF
+#!/bin/bash
+set -e
+cp "$source_file" "$target_path"
+chmod --reference="${target_path}.original" "$target_path" 2>/dev/null || true
+chown --reference="${target_path}.original" "$target_path" 2>/dev/null || true
+echo "✓ Successfully copied file to system location"
+EOF
+            
+            chmod +x "$tmp_script"
+            sudo "$tmp_script"
+            local result=$?
+            rm -f "$tmp_script"
+            return $result
         else
             echo "ERROR: Sudo not available, cannot copy to system location"
             echo "To manually complete the operation, run as root:"

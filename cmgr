@@ -23,6 +23,7 @@ source "${SCRIPT_DIR}/lib/instance.sh"
 source "${SCRIPT_DIR}/lib/config.sh"
 source "${SCRIPT_DIR}/lib/desktop.sh"
 source "${SCRIPT_DIR}/lib/help.sh"
+source "${SCRIPT_DIR}/lib/patches.sh"
 
 # Check for basic dependencies
 if ! check_dependencies; then

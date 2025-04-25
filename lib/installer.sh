@@ -681,13 +681,14 @@ PATCHSCRIPT
                             echo \"System location detected, attempting to copy patched file...\"
                             # Try using sudo to copy the file
                             # Create system path info file
-                            echo \"\$ASAR_FILE\" > \"~/.cmgr/temp/system-path-$sandbox_name.txt\"
+                            mkdir -p \"$HOME/.cmgr/temp\"
+                            echo \"\$ASAR_FILE\" > \"$HOME/.cmgr/temp/system-path-$sandbox_name.txt\"
                             
                             # Use the helper function from sandbox.sh
                             copy_to_system_location \"\$PATCHED_ASAR\" \"\$ASAR_FILE\" || {
                                 echo \"WARNING: Failed to copy patched file to system location.\"
                                 echo \"You can apply patches later with:\"
-                                echo \"sudo ${SCRIPT_DIR}/../scripts/apply-system-patches.sh\"
+                                echo \"sudo \$(which cmgr) apply-patches\"
                             }
                         fi
                         break
@@ -708,9 +709,16 @@ PATCHSCRIPT
                     PATCHED_ASAR=\"\$(ls -t ~/.cmgr/temp/patched-$sandbox_name.asar 2>/dev/null | head -1)\"
                     if [ -n \"\$PATCHED_ASAR\" ] && [[ \"\$ASAR_FILE\" == /usr/* ]]; then
                         echo \"System location detected, attempting to copy patched file...\"
+                        # Create system path info file if needed
+                        mkdir -p \"$HOME/.cmgr/temp\"
+                        echo \"\$ASAR_FILE\" > \"$HOME/.cmgr/temp/system-path-$sandbox_name.txt\"
+                        
                         # Use the helper function from sandbox.sh
-                        copy_to_system_location \"\$PATCHED_ASAR\" \"\$ASAR_FILE\" || \\
-                        echo \"WARNING: Failed to copy patched file to system location. Manual intervention required.\"
+                        copy_to_system_location \"\$PATCHED_ASAR\" \"\$ASAR_FILE\" || {
+                            echo \"WARNING: Failed to copy patched file to system location.\"
+                            echo \"You can apply the patch later with:\"
+                            echo \"sudo \$(which cmgr) apply-patches\"
+                        }
                     fi
                 else
                     echo \"Could not find app.asar, skipping patching\"
