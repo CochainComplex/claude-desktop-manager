@@ -117,7 +117,7 @@ run_in_sandbox() {
         --clearenv
         --setenv HOME "${real_home_dir}"
         --setenv PATH "${real_home_dir}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
-        --setenv DISPLAY "${DISPLAY}"
+        --setenv DISPLAY "${DISPLAY:-:0}"
         --setenv WAYLAND_DISPLAY "${WAYLAND_DISPLAY:-}"
         --setenv DBUS_SESSION_BUS_ADDRESS "${DBUS_SESSION_BUS_ADDRESS:-}"
         --setenv XDG_RUNTIME_DIR "${XDG_RUNTIME_DIR:-}"

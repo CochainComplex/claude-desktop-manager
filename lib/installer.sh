@@ -9,10 +9,15 @@ log_message() {
     local log_file="${CMGR_HOME}/logs/installer.log"
     
     # Create log directory if it doesn't exist
-    mkdir -p "$(dirname "$log_file")"
+    log_dir="$(dirname "$log_file")"
+    if [ ! -d "$log_dir" ]; then
+        mkdir -p "$log_dir" 2>/dev/null || true
+    fi
     
-    # Log to file
-    echo "[$timestamp] [$level] $message" >> "$log_file"
+    # Log to file (only if directory exists and is writable)
+    if [ -d "$log_dir" ] && [ -w "$log_dir" ]; then
+        echo "[$timestamp] [$level] $message" >> "$log_file" 2>/dev/null || true
+    fi
     
     # Log to console if not INFO
     if [ "$level" != "INFO" ]; then
@@ -242,13 +247,46 @@ install_claude_in_sandbox() {
     local install_success=false
     if [ "$build_format" = "deb" ]; then
         # Extract the .deb package in the sandbox instead of using dpkg
-        if run_in_sandbox "$sandbox_name" bash -c "cd $HOME && ar x $HOME/Downloads/$(basename "$package_path") && \
-         ([ -f data.tar.xz ] && tar xf data.tar.xz || \
-          [ -f data.tar.gz ] && tar xf data.tar.gz || \
-          [ -f data.tar.zst ] && tar --use-compress-program=unzstd -xf data.tar.zst || \
-          [ -f data.tar ] && tar xf data.tar) && \
-         rm -f data.tar.xz data.tar.gz data.tar.zst data.tar control.tar.* debian-binary && \
-         mkdir -p $HOME/.local/bin && cp -r usr/bin/claude-desktop $HOME/.local/bin/"; then
+        if run_in_sandbox "$sandbox_name" bash -c "cd $HOME && \
+            ar x $HOME/Downloads/$(basename "$package_path") && \
+            # Support multiple compression formats (xz, gz, zst, uncompressed)
+            if [ -f data.tar.xz ]; then 
+                tar xf data.tar.xz
+            elif [ -f data.tar.gz ]; then 
+                tar xf data.tar.gz
+            elif [ -f data.tar.zst ]; then 
+                tar --use-compress-program=unzstd -xf data.tar.zst
+            elif [ -f data.tar ]; then 
+                tar xf data.tar
+            else
+                # If no recognized format, try to find any data archive
+                for data_file in \$(find . -name 'data.tar*'); do
+                    case \$data_file in
+                        *.xz)  tar xf \$data_file ;;
+                        *.gz)  tar xf \$data_file ;;
+                        *.zst) tar --use-compress-program=unzstd -xf \$data_file ;;
+                        *)     tar xf \$data_file ;;
+                    esac
+                    break
+                done
+            fi && \
+            # Clean up archive files
+            rm -f data.tar* control.tar* debian-binary && \
+            mkdir -p $HOME/.local/bin && \
+            # Copy the executable
+            if [ -f usr/bin/claude-desktop ]; then
+                cp -r usr/bin/claude-desktop $HOME/.local/bin/
+            else
+                # If not in the standard location, try to find it
+                executable=\$(find . -type f -name 'claude-desktop' | head -1)
+                if [ -n \"\$executable\" ]; then
+                    mkdir -p \$(dirname \"$HOME/.local/bin/claude-desktop\")
+                    cp \$executable $HOME/.local/bin/
+                else
+                    echo 'Error: Claude Desktop executable not found'
+                    exit 1
+                fi
+            fi"; then
             # Create desktop entry file in the sandbox
             run_in_sandbox "$sandbox_name" bash -c "mkdir -p $HOME/.local/share/applications && cat > $HOME/.local/share/applications/claude-desktop.desktop << EOF
 [Desktop Entry]
