@@ -165,6 +165,20 @@ run_in_sandbox() {
     # Device access
     bwrap_cmd+=(--dev-bind /dev /dev)
     
+    # Explicitly bind DRI device for graphics acceleration if it exists
+    if [ -d "/dev/dri" ]; then
+        echo "Binding graphics device: /dev/dri"
+        bwrap_cmd+=(--dev-bind "/dev/dri" "/dev/dri")
+    fi
+    
+    # Explicitly bind nvidia devices if they exist
+    for nvidia_dev in /dev/nvidia*; do
+        if [ -e "$nvidia_dev" ]; then
+            echo "Binding NVIDIA device: $nvidia_dev"
+            bwrap_cmd+=(--dev-bind "$nvidia_dev" "$nvidia_dev")
+        fi
+    done
+    
     # Environment variables
     local real_home_dir="$HOME"
     

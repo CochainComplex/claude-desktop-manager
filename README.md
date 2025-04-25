@@ -26,7 +26,17 @@ This project extends [emsi/claude-desktop](https://github.com/emsi/claude-deskto
 
 ## Graphics Hardware Notes
 
-By default, Claude Desktop Manager disables GPU hardware acceleration to prevent common graphics-related errors like `libva error: /usr/lib/x86_64-linux-gnu/dri/i965_drv_video.so init failed`. This ensures compatibility across different graphics hardware configurations.
+Claude Desktop Manager implements several techniques to ensure compatibility with different graphics hardware configurations:
+
+1. **Hardware Acceleration Disabled**: All instances run with `--disable-gpu` flag to prevent common rendering issues
+2. **LIBVA Driver Management**: Uses `LIBVA_DRIVER_NAME=dummy` to prevent Intel graphics errors
+3. **Device Access**: Explicitly binds graphics devices in the sandbox environment
+4. **SwiftShader Support**: Enables software rendering fallback with the `--enable-unsafe-swiftshader` flag
+
+These measures prevent common errors like:
+- `libva error: i965_drv_video.so init failed`
+- `Automatic fallback to software WebGL has been deprecated`
+- `MaxListenersExceededWarning` related to Electron's EventEmitter
 
 ## Installation
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2025-04-25 (v0.2.1)
+### Fixed
+- Added comprehensive graphics fixes including:
+  - Setting `LIBVA_DRIVER_NAME=dummy` to avoid libva errors
+  - Added `--no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader` Electron flags
+  - Added explicit device bindings for graphics hardware in sandbox
+- Enhanced preload script to patch EventEmitter directly (fixes "MaxListenersExceededWarning")
+- Fixed WebGL errors with appropriate Electron flags
+- Improved desktop shortcuts with proper environment variables
+
 ## 2025-04-25 (v0.2.0)
 ### Fixed
 - Added `--disable-gpu` flag to prevent hardware acceleration issues (fixes "libva error" message)

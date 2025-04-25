@@ -296,7 +296,7 @@ install_claude_in_sandbox() {
 [Desktop Entry]
 Name=Claude Desktop
 Comment=Claude Desktop AI Assistant
-Exec=$HOME/.local/bin/claude-desktop --disable-gpu --preload=$HOME/.config/claude-desktop/preload.js %u
+Exec=env LIBVA_DRIVER_NAME=dummy $HOME/.local/bin/claude-desktop --disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js %u
 Icon=claude-desktop
 Type=Application
 Terminal=false
@@ -324,7 +324,7 @@ EOF"
 [Desktop Entry]
 Name=Claude Desktop
 Comment=Claude Desktop AI Assistant
-Exec=${appimage_file} --disable-gpu --preload=$HOME/.config/claude-desktop/preload.js %u
+Exec=env LIBVA_DRIVER_NAME=dummy ${appimage_file} --disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js %u
 Icon=claude-desktop
 Type=Application
 Terminal=false

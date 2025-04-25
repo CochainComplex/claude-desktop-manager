@@ -244,10 +244,23 @@ start_instance() {
                 fi
             fi
             
+            # Set Electron flags to prevent common graphics issues
+            export ELECTRON_FLAGS="--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader"
+            
+            # Check if preload script exists
+            if [ -f "$HOME/.config/claude-desktop/preload.js" ]; then
+                ELECTRON_FLAGS="$ELECTRON_FLAGS --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js"
+                echo "Using preload script: $HOME/.config/claude-desktop/preload.js"
+            else
+                echo "WARNING: Preload script not found at $HOME/.config/claude-desktop/preload.js"
+            fi
+            
+            # Export LIBVA_DRIVER_NAME to avoid libva errors
+            export LIBVA_DRIVER_NAME=dummy
+            
             if [ -x "$HOME/.local/bin/claude-desktop" ]; then
-                echo "Starting Claude Desktop (deb format)..."
-                # Add --disable-gpu flag to prevent hardware acceleration issues
-                exec "$HOME/.local/bin/claude-desktop" --disable-gpu
+                echo "Starting Claude Desktop (deb format) with flags: $ELECTRON_FLAGS"
+                $HOME/.local/bin/claude-desktop $ELECTRON_FLAGS
             else
                 echo "Error: Claude Desktop not found at $HOME/.local/bin/claude-desktop"
                 exit 1
@@ -266,12 +279,25 @@ start_instance() {
                 fi
             fi
             
+            # Set Electron flags to prevent common graphics issues
+            export ELECTRON_FLAGS="--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader"
+            
+            # Check if preload script exists
+            if [ -f "$HOME/.config/claude-desktop/preload.js" ]; then
+                ELECTRON_FLAGS="$ELECTRON_FLAGS --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js"
+                echo "Using preload script: $HOME/.config/claude-desktop/preload.js"
+            else
+                echo "WARNING: Preload script not found at $HOME/.config/claude-desktop/preload.js"
+            fi
+            
+            # Export LIBVA_DRIVER_NAME to avoid libva errors
+            export LIBVA_DRIVER_NAME=dummy
+            
             # Find AppImage
             appimage_file=$(find "$HOME/Downloads" -type f -name "*.AppImage" | head -1)
             if [ -n "$appimage_file" ] && [ -x "$appimage_file" ]; then
-                echo "Starting Claude Desktop (AppImage format)..."
-                # Add --disable-gpu flag to prevent hardware acceleration issues
-                exec "$appimage_file" --disable-gpu
+                echo "Starting Claude Desktop (AppImage format) with flags: $ELECTRON_FLAGS"
+                $appimage_file $ELECTRON_FLAGS
             else
                 echo "Error: AppImage not found or not executable"
                 exit 1
