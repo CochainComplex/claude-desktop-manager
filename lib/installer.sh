@@ -238,9 +238,16 @@ install_claude_in_sandbox() {
     local sandbox_home="${SANDBOX_BASE}/${sandbox_name}"
     mkdir -p "${sandbox_home}/Downloads"
     
-    # Copy preload script to sandbox
+    # Copy scripts to sandbox
     mkdir -p "${sandbox_home}/.config/claude-desktop"
+    mkdir -p "${sandbox_home}/.config/Claude/electron"
+    
+    # Copy preload script to standard locations
     cp -f "${SCRIPT_DIR}/../templates/scripts/preload.js" "${sandbox_home}/.config/claude-desktop/"
+    cp -f "${SCRIPT_DIR}/../templates/scripts/preload.js" "${sandbox_home}/.config/Claude/electron/"
+    
+    # Copy the fix-listeners script
+    cp -f "${SCRIPT_DIR}/../templates/scripts/fix-listeners.js" "${sandbox_home}/.config/claude-desktop/"
     
     if ! cp -f "$package_path" "${sandbox_home}/Downloads/"; then
         log_error "Failed to copy package to sandbox."
@@ -339,6 +346,63 @@ EOF"; then
     
     if [ "$install_success" = "true" ]; then
         log_info "Claude Desktop installed successfully in sandbox '${sandbox_name}'!"
+        
+        # Apply the MaxListenersExceededWarning fix
+        log_info "Applying MaxListenersExceededWarning fix..."
+        
+        if [ "$build_format" = "deb" ]; then
+            # Try to find the app installation directory
+            run_in_sandbox "$sandbox_name" bash -c "
+                # First check if nodejs and npm are installed
+                if ! command -v node &>/dev/null; then
+                    echo 'Installing Node.js for patching...'
+                    mkdir -p ~/.local/share/nodejs
+                    curl -sL https://nodejs.org/dist/v18.16.0/node-v18.16.0-linux-x64.tar.gz | tar xz -C ~/.local/share/nodejs --strip-components=1
+                    export PATH=~/.local/share/nodejs/bin:\$PATH
+                fi
+                
+                if ! command -v npx &>/dev/null; then
+                    # Install asar globally if npx is not available
+                    npm install -g asar
+                fi
+                
+                # Run the fix-listeners.js script pointing to the app directory
+                APP_DIR=\$(readlink -f ~/.local/share/claude-desktop || echo ~/.local/bin)
+                node ~/.config/claude-desktop/fix-listeners.js \$APP_DIR
+                
+                echo 'Patching completed!'
+            " || log_warn "Failed to apply MaxListenersExceededWarning fix, but installation completed."
+        else
+            # For AppImage, we need a different approach
+            run_in_sandbox "$sandbox_name" bash -c "
+                # First check if nodejs and npm are installed
+                if ! command -v node &>/dev/null; then
+                    echo 'Installing Node.js for patching...'
+                    mkdir -p ~/.local/share/nodejs
+                    curl -sL https://nodejs.org/dist/v18.16.0/node-v18.16.0-linux-x64.tar.gz | tar xz -C ~/.local/share/nodejs --strip-components=1
+                    export PATH=~/.local/share/nodejs/bin:\$PATH
+                fi
+                
+                # Create a wrapper script that sets ENV variables to suppress warnings
+                APPIMAGE=\$(find ~/Downloads -name '*.AppImage' | head -1)
+                if [ -n \"\$APPIMAGE\" ]; then
+                    echo 'Creating wrapper script for AppImage...'
+                    mv \"\$APPIMAGE\" \"\$APPIMAGE.original\"
+                    cat > \"\$APPIMAGE\" << 'EOF'
+#!/bin/bash
+# Wrapper script to prevent MaxListenersExceededWarning
+export NODE_OPTIONS='--no-warnings'
+export ELECTRON_NO_WARNINGS=1
+
+SCRIPT_DIR=\"\$(cd \"\$(dirname \"\${BASH_SOURCE[0]}\")\" && pwd)\"
+\"\$SCRIPT_DIR/\$(basename \"\$0\").original\" \"\$@\"
+EOF
+                    chmod +x \"\$APPIMAGE\"
+                    echo 'AppImage wrapper created successfully!'
+                fi
+            " || log_warn "Failed to apply MaxListenersExceededWarning fix, but installation completed."
+        fi
+        
         return 0
     else
         log_error "Failed to install Claude Desktop in sandbox."

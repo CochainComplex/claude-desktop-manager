@@ -1,32 +1,128 @@
-// preload.js - Script to fix common issues in Claude Desktop
+// Enhanced preload.js - Fixes for common issues in Claude Desktop
 // This script runs in the Electron process context
+
+// Log that preload script is running
+console.log('CMGR: Enhanced preload script initializing');
 
 // Fix for MaxListenersExceededWarning
 if (typeof process !== 'undefined') {
-  const events = require('events');
-  
-  // Increase max listeners to a higher value (20 is often too low)
-  events.EventEmitter.defaultMaxListeners = 30;
-  
-  // Patch individual emitters when they're created
-  const originalEmit = events.EventEmitter.prototype.emit;
-  events.EventEmitter.prototype.emit = function(type, ...args) {
-    if (type === 'newListener' && this.listenerCount('newListener') === 0) {
-      // When a WebContents object is created, increase its limit
-      if (this.constructor && this.constructor.name === 'WebContents') {
-        this.setMaxListeners(30);
+  try {
+    const events = require('events');
+    
+    // Increase max listeners to a higher value (default is 10)
+    events.EventEmitter.defaultMaxListeners = 30;
+    console.log('CMGR: Set default max listeners to 30');
+    
+    // Patch individual emitters when they're created
+    const originalEmit = events.EventEmitter.prototype.emit;
+    events.EventEmitter.prototype.emit = function(type, ...args) {
+      if (type === 'newListener' && this.listenerCount('newListener') === 0) {
+        // When a new emitter gets its first listener, increase its limit
+        if (this.setMaxListeners) {
+          this.setMaxListeners(30);
+        }
       }
+      return originalEmit.apply(this, [type, ...args]);
+    };
+    
+    // Load electron conditionally
+    let electron;
+    try {
+      electron = require('electron');
+      
+      // Handle WebContents specifically
+      if (electron.app) {
+        // This runs in the main process
+        console.log('CMGR: Running in main process, patching app.on(web-contents-created)');
+        
+        // Patch app when web contents are created
+        electron.app.on('web-contents-created', (event, contents) => {
+          console.log('CMGR: New WebContents created, increasing its max listeners');
+          contents.setMaxListeners(30);
+        });
+      } else if (electron.remote && electron.remote.app) {
+        // This runs in the renderer process with remote module
+        console.log('CMGR: Running in renderer with remote, patching remote.app');
+        
+        electron.remote.app.on('web-contents-created', (event, contents) => {
+          contents.setMaxListeners(30);
+        });
+      }
+    } catch (electronError) {
+      console.log('CMGR: Electron module not available in this context:', electronError.message);
     }
-    return originalEmit.apply(this, [type, ...args]);
-  };
-
-  console.log('Claude Desktop Manager: Preload script initialized - EventEmitter patched');
+    
+    console.log('CMGR: EventEmitter patching complete');
+  } catch (error) {
+    console.error('CMGR: Error patching EventEmitter:', error);
+  }
 }
 
-// Expose the script status to the window object so the renderer can verify it loaded
+// Patch the DOM EventTarget for renderer process
 if (typeof window !== 'undefined') {
-  window.claudeDesktopManager = {
-    preloadLoaded: true,
-    version: '0.2.0'
-  };
+  try {
+    // Store original addEventListener to maximize compatibility
+    const originalAddEventListener = EventTarget.prototype.addEventListener;
+    
+    // Create a cache of event types and listeners
+    window.__cmgr_eventCache = window.__cmgr_eventCache || {};
+    
+    // Patch addEventListener to deduplicate listeners
+    EventTarget.prototype.addEventListener = function(type, listener, options) {
+      // Create a cache for this element if it doesn't exist
+      const elemCache = window.__cmgr_eventCache[this] = window.__cmgr_eventCache[this] || {};
+      
+      // Create a cache for this event type if it doesn't exist
+      elemCache[type] = elemCache[type] || new Set();
+      
+      // Skip if we've already added this listener to this element for this event type
+      // Note: This is a simplification, as listener could be a different instance with same code
+      const listenerStr = listener.toString();
+      if (elemCache[type].has(listenerStr)) {
+        return;
+      }
+      
+      // Add to our cache
+      elemCache[type].add(listenerStr);
+      
+      // Call the original method
+      return originalAddEventListener.call(this, type, listener, options);
+    };
+    
+    console.log('CMGR: DOM EventTarget patched to prevent duplicate listeners');
+    
+    // Expose the script status to the window object for debugging
+    window.claudeDesktopManager = {
+      preloadLoaded: true,
+      version: '0.3.0',
+      patchedAt: new Date().toISOString(),
+      listenersPatched: true
+    };
+    
+    console.log('CMGR: Renderer process preload complete');
+  } catch (error) {
+    console.error('CMGR: Error patching DOM EventTarget:', error);
+  }
 }
+
+// Suppress specific warnings by overriding console.warn
+if (typeof console !== 'undefined') {
+  const originalWarn = console.warn;
+  console.warn = function(...args) {
+    // Check if this is a MaxListenersExceededWarning
+    if (args[0] && typeof args[0] === 'string' && 
+        (args[0].includes('MaxListenersExceededWarning') || 
+         args[0].includes('Possible EventEmitter memory leak'))) {
+      // Suppress this warning
+      return;
+    }
+    
+    // Pass through other warnings
+    return originalWarn.apply(this, args);
+  };
+  
+  console.log('CMGR: Console warnings for MaxListenersExceededWarning suppressed');
+}
+
+// Print a reminder at the end for verification
+console.log('CMGR: Preload script initialization complete!');

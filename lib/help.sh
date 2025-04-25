@@ -19,12 +19,14 @@ Commands:
   desktop <n>            Create desktop shortcut
   mcp <n> [options]      Configure MCP settings
   execute <n> [command]  Execute a Claude Desktop command in instance
+  fix-warnings <n>       Fix MaxListenersExceededWarning in an instance
   help                   Show this help message
 
 Examples:
   cmgr create work               Create a new instance named "work"
   cmgr start work                Start the work instance
   cmgr alias work                Create an alias for the work instance
+  cmgr fix-warnings work         Fix MaxListenersExceededWarning in work instance
   cmgr execute work getWindowArguments []  Run a Claude command in instance
 
 For more information, see the README.md file.

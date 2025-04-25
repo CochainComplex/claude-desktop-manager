@@ -107,6 +107,105 @@ cmd_execute() {
     execute_claude_command "$instance_name" "$@"
 }
 
+cmd_fix_warnings() {
+    local instance_name="$1"
+    
+    if [ -z "$instance_name" ]; then
+        echo "Error: Missing instance name"
+        cmd_help
+        exit 1
+    fi
+    
+    # Check if instance exists
+    if ! instance_exists "$instance_name"; then
+        echo "Error: Instance '$instance_name' does not exist."
+        return 1
+    fi
+    
+    echo "Applying MaxListenersExceededWarning fix to instance '$instance_name'..."
+    
+    # Copy the fix-listeners script if it doesn't exist
+    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
+    mkdir -p "${sandbox_home}/.config/claude-desktop"
+    if [ ! -f "${sandbox_home}/.config/claude-desktop/fix-listeners.js" ]; then
+        cp -f "${SCRIPT_DIR}/templates/scripts/fix-listeners.js" "${sandbox_home}/.config/claude-desktop/"
+    fi
+    
+    # Copy the enhanced preload script
+    cp -f "${SCRIPT_DIR}/templates/scripts/preload.js" "${sandbox_home}/.config/claude-desktop/"
+    mkdir -p "${sandbox_home}/.config/Claude/electron"
+    cp -f "${SCRIPT_DIR}/templates/scripts/preload.js" "${sandbox_home}/.config/Claude/electron/"
+    
+    # Run the fix-listeners.js script
+    run_in_sandbox "$instance_name" bash -c "
+        echo 'Running fix-listeners.js script...'
+        
+        # First check if nodejs is installed
+        if ! command -v node &>/dev/null; then
+            echo 'Installing Node.js for patching...'
+            mkdir -p ~/.local/share/nodejs
+            curl -sL https://nodejs.org/dist/v18.16.0/node-v18.16.0-linux-x64.tar.gz | tar xz -C ~/.local/share/nodejs --strip-components=1
+            export PATH=~/.local/share/nodejs/bin:\$PATH
+        fi
+        
+        # For deb installations
+        if [ -d ~/.local/share/claude-desktop ] || [ -x ~/.local/bin/claude-desktop ]; then
+            APP_DIR=\$(readlink -f ~/.local/share/claude-desktop || echo ~/.local/bin)
+            echo \"Patching \$APP_DIR...\"
+            node ~/.config/claude-desktop/fix-listeners.js \$APP_DIR
+        fi
+        
+        # For AppImage installations
+        APPIMAGE=\$(find ~/Downloads -name '*.AppImage' | head -1)
+        if [ -n \"\$APPIMAGE\" ] && [ ! -f \"\$APPIMAGE.original\" ]; then
+            echo 'Creating wrapper script for AppImage...'
+            mv \"\$APPIMAGE\" \"\$APPIMAGE.original\"
+            cat > \"\$APPIMAGE\" << 'EOF'
+#!/bin/bash
+# Wrapper script to prevent MaxListenersExceededWarning
+export NODE_OPTIONS='--no-warnings'
+export ELECTRON_NO_WARNINGS=1
+
+SCRIPT_DIR=\"\$(cd \"\$(dirname \"\${BASH_SOURCE[0]}\")\" && pwd)\"
+\"\$SCRIPT_DIR/\$(basename \"\$0\").original\" \"\$@\"
+EOF
+            chmod +x \"\$APPIMAGE\"
+            echo 'AppImage wrapper created successfully!'
+        fi
+        
+        # Update the Claude config to use preload script
+        mkdir -p ~/.config/Claude
+        CONFIG_FILE=~/.config/Claude/claude_desktop_config.json
+        
+        if [ -f \"\$CONFIG_FILE\" ]; then
+            # Use jq if available
+            if command -v jq &>/dev/null; then
+                TMP_FILE=\"\$CONFIG_FILE.tmp\"
+                jq '.electronInitScript = \"$HOME/.config/Claude/electron/preload.js\"' \"\$CONFIG_FILE\" > \"\$TMP_FILE\"
+                mv \"\$TMP_FILE\" \"\$CONFIG_FILE\"
+            else
+                # Simple sed-based approach if jq is not available
+                sed -i 's/\"electronInitScript\":.*/\"electronInitScript\": \"$HOME\\/.config\\/Claude\\/electron\\/preload.js\",/g' \"\$CONFIG_FILE\"
+                if ! grep -q \"electronInitScript\" \"\$CONFIG_FILE\"; then
+                    # Add the configuration if not present
+                    sed -i 's/{/{\"electronInitScript\": \"$HOME\\/.config\\/Claude\\/electron\\/preload.js\",/g' \"\$CONFIG_FILE\"
+                fi
+            fi
+        else
+            # Create new config file
+            mkdir -p ~/.config/Claude
+            echo '{
+  \"electronInitScript\": \"$HOME/.config/Claude/electron/preload.js\"
+}' > \"\$CONFIG_FILE\"
+        fi
+        
+        echo 'MaxListenersExceededWarning fix completed!'
+    "
+    
+    echo "✓ Fix applied successfully! Please restart the instance for changes to take effect."
+    return 0
+}
+
 cmd_help() {
     show_help
 }
@@ -196,6 +295,9 @@ main() {
                 exit 1
             fi
             cmd_execute "$@"
+            ;;
+        fix-warnings)
+            cmd_fix_warnings "$@"
             ;;
         help|--help|-h)
             cmd_help

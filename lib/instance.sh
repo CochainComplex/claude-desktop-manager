@@ -244,15 +244,22 @@ start_instance() {
                 fi
             fi
             
+            # Set environment variables to suppress Node.js warnings
+            export NODE_OPTIONS="--no-warnings"
+            export ELECTRON_NO_WARNINGS=1
+            
             # Set Electron flags to prevent common graphics issues
             export ELECTRON_FLAGS="--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader"
             
-            # Check if preload script exists
-            if [ -f "$HOME/.config/claude-desktop/preload.js" ]; then
+            # Check if preload script exists in either location
+            if [ -f "$HOME/.config/Claude/electron/preload.js" ]; then
+                ELECTRON_FLAGS="$ELECTRON_FLAGS --js-flags=\"--expose-gc\" --preload=$HOME/.config/Claude/electron/preload.js"
+                echo "Using preload script: $HOME/.config/Claude/electron/preload.js"
+            elif [ -f "$HOME/.config/claude-desktop/preload.js" ]; then
                 ELECTRON_FLAGS="$ELECTRON_FLAGS --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js"
                 echo "Using preload script: $HOME/.config/claude-desktop/preload.js"
             else
-                echo "WARNING: Preload script not found at $HOME/.config/claude-desktop/preload.js"
+                echo "WARNING: Preload script not found"
             fi
             
             # Export LIBVA_DRIVER_NAME to avoid libva errors
@@ -279,15 +286,22 @@ start_instance() {
                 fi
             fi
             
+            # Set environment variables to suppress Node.js warnings
+            export NODE_OPTIONS="--no-warnings"
+            export ELECTRON_NO_WARNINGS=1
+            
             # Set Electron flags to prevent common graphics issues
             export ELECTRON_FLAGS="--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader"
             
-            # Check if preload script exists
-            if [ -f "$HOME/.config/claude-desktop/preload.js" ]; then
+            # Check if preload script exists in either location
+            if [ -f "$HOME/.config/Claude/electron/preload.js" ]; then
+                ELECTRON_FLAGS="$ELECTRON_FLAGS --js-flags=\"--expose-gc\" --preload=$HOME/.config/Claude/electron/preload.js"
+                echo "Using preload script: $HOME/.config/Claude/electron/preload.js"
+            elif [ -f "$HOME/.config/claude-desktop/preload.js" ]; then
                 ELECTRON_FLAGS="$ELECTRON_FLAGS --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js"
                 echo "Using preload script: $HOME/.config/claude-desktop/preload.js"
             else
-                echo "WARNING: Preload script not found at $HOME/.config/claude-desktop/preload.js"
+                echo "WARNING: Preload script not found"
             fi
             
             # Export LIBVA_DRIVER_NAME to avoid libva errors

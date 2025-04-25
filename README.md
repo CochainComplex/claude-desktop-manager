@@ -141,7 +141,33 @@ Claude Desktop Manager implements several techniques to ensure compatibility wit
 These measures prevent common errors like:
 - `libva error: i965_drv_video.so init failed`
 - `Automatic fallback to software WebGL has been deprecated`
-- `MaxListenersExceededWarning` related to Electron's EventEmitter
+
+## Max Listeners Warning Fix
+
+Claude Desktop Manager implements a comprehensive approach to prevent the common `MaxListenersExceededWarning` error:
+
+1. **Code Patching**: During installation, the application automatically patches the Electron application code to increase event listener limits
+2. **Environment Variables**: Sets `NODE_OPTIONS=--no-warnings` and `ELECTRON_NO_WARNINGS=1` to suppress warnings
+3. **Enhanced Preload Script**: Uses a sophisticated preload script that patches EventEmitter and DOM event handling
+4. **Console Redirection**: Intercepts and filters console warnings related to MaxListenersExceededWarning
+
+These fixes work together to ensure you won't see the annoying warning:
+```
+MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 destroyed listeners added to [WebContents]. MaxListeners is 10.
+```
+
+If you still experience this warning, you can:
+
+1. Reinstall the instance with the latest fixes:
+   ```bash
+   cmgr remove problem-instance
+   cmgr create problem-instance
+   ```
+
+2. Manually apply the fix to an existing instance:
+   ```bash
+   cmgr execute my-instance 'node ~/.config/claude-desktop/fix-listeners.js ~/.local/share/claude-desktop'
+   ```
 
 ## MCP Tool Integration
 
