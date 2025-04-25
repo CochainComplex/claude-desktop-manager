@@ -242,7 +242,13 @@ install_claude_in_sandbox() {
     local install_success=false
     if [ "$build_format" = "deb" ]; then
         # Extract the .deb package in the sandbox instead of using dpkg
-        if run_in_sandbox "$sandbox_name" bash -c "cd $HOME && ar x $HOME/Downloads/$(basename "$package_path") && tar xf data.tar.xz && rm data.tar.xz control.tar.xz debian-binary && mkdir -p $HOME/.local/bin && cp -r usr/bin/claude-desktop $HOME/.local/bin/"; then
+        if run_in_sandbox "$sandbox_name" bash -c "cd $HOME && ar x $HOME/Downloads/$(basename "$package_path") && \
+         ([ -f data.tar.xz ] && tar xf data.tar.xz || \
+          [ -f data.tar.gz ] && tar xf data.tar.gz || \
+          [ -f data.tar.zst ] && tar --use-compress-program=unzstd -xf data.tar.zst || \
+          [ -f data.tar ] && tar xf data.tar) && \
+         rm -f data.tar.xz data.tar.gz data.tar.zst data.tar control.tar.* debian-binary && \
+         mkdir -p $HOME/.local/bin && cp -r usr/bin/claude-desktop $HOME/.local/bin/"; then
             # Create desktop entry file in the sandbox
             run_in_sandbox "$sandbox_name" bash -c "mkdir -p $HOME/.local/share/applications && cat > $HOME/.local/share/applications/claude-desktop.desktop << EOF
 [Desktop Entry]
