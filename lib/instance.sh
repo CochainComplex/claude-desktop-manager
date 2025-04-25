@@ -168,21 +168,43 @@ create_instance() {
     # Add to registry
     if ! add_instance "$instance_name" "$build_format"; then
         echo "Error: Failed to add instance to registry."
+        # Clean up sandbox since we failed
+        remove_sandbox "$instance_name"
         return 1
     fi
     
     # Install Claude Desktop
     if ! install_claude_in_sandbox "$instance_name" "$build_format"; then
         echo "Error: Failed to install Claude Desktop in sandbox."
+        # Clean up the instance from registry and remove sandbox
+        remove_instance_from_registry "$instance_name"
+        remove_sandbox "$instance_name"
         return 1
     fi
     
     # Configure MCP auto-approve if requested
     if [ "$mcp_auto_approve" = "true" ]; then
-        configure_mcp "$instance_name" --auto-approve
+        if ! configure_mcp "$instance_name" --auto-approve; then
+            echo "Warning: Failed to configure MCP auto-approve for instance '$instance_name'."
+            # Continue since this is not critical
+        fi
     fi
     
     echo "Instance '$instance_name' created successfully!"
+    return 0
+}
+
+# Helper function to remove sandbox
+remove_sandbox() {
+    local instance_name="$1"
+    local sandbox_path="${SANDBOX_BASE}/${instance_name}"
+    
+    if [ -d "$sandbox_path" ]; then
+        rm -rf "$sandbox_path"
+        rm -f "${SANDBOX_BASE}/fake_passwd.${instance_name}"
+        echo "Sandbox for instance '$instance_name' removed."
+    fi
+    
     return 0
 }
 

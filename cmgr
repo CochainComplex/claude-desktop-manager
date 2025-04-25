@@ -19,8 +19,17 @@ if ! check_dependencies; then
     exit 1
 fi
 
-# Global variables
-CMGR_HOME="${HOME}/.cmgr"
+# Global variables - handle sudo properly
+if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+    # Running as root with sudo
+    ORIGINAL_USER="${SUDO_USER}"
+    ORIGINAL_HOME=$(eval echo ~${SUDO_USER})
+    CMGR_HOME="${ORIGINAL_HOME}/.cmgr"
+else
+    # Running as regular user
+    CMGR_HOME="${HOME}/.cmgr"
+fi
+
 CMGR_CACHE="${CMGR_HOME}/cache"
 CMGR_REGISTRY="${CMGR_HOME}/registry.json"
 SANDBOX_BASE="${HOME}/sandboxes"
@@ -31,6 +40,11 @@ mkdir -p "${CMGR_HOME}" "${CMGR_CACHE}" "${SANDBOX_BASE}"
 # Initialize registry if it doesn't exist
 if [ ! -f "${CMGR_REGISTRY}" ]; then
     echo '{"instances": {}}' > "${CMGR_REGISTRY}"
+fi
+
+# Fix ownership if running as root
+if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+    chown -R "${SUDO_USER}:$(id -gn "${SUDO_USER}")" "${CMGR_HOME}" "${SANDBOX_BASE}"
 fi
 
 # Command handlers
