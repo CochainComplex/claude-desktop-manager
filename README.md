@@ -1,6 +1,14 @@
 # Claude Desktop Manager (cmgr)
 
-Claude Desktop Manager is a utility for creating and managing multiple isolated instances of Claude Desktop on Linux systems. It allows users to maintain different Claude Desktop environments with separate settings, conversations, and MCP configurations.
+Claude Desktop Manager is a utility for creating and managing multiple isolated instances of Claude Desktop on Linux systems. This tool enables users to maintain different Claude Desktop environments with separate settings, conversations, and MCP configurations - all running simultaneously on the same host.
+
+## Summary
+
+- **Isolation**: Each Claude instance runs in a separate bubblewrap sandbox with its own configuration, ensuring complete separation.
+- **MCP Management**: Configure different auto-approval settings or custom MCP servers for different use cases.
+- **Resource Efficiency**: Built packages are cached to avoid rebuilding for each instance.
+- **Usability**: Desktop shortcuts and shell aliases provide quick access to each instance.
+- **Clean Design**: Per-instance installation ensures completely isolated environments with no conflicts.
 
 ## Features
 
@@ -105,6 +113,8 @@ Creates a desktop entry for launching the instance.
 
 ### Configuring MCP settings
 
+The Machine-Computer Protocol (MCP) allows Claude to interact with your system. Each instance can have different MCP settings:
+
 ```bash
 # Enable auto-approval for all MCP tools
 ./cmgr mcp work --auto-approve
@@ -112,6 +122,13 @@ Creates a desktop entry for launching the instance.
 # Set custom MCP server
 ./cmgr mcp work --server http://localhost:8000
 ```
+
+MCP configuration is stored in the instance-specific `~/.config/Claude/claude_desktop_config.json` file within each sandbox. This allows you to:
+
+- Use auto-approval in development instances for efficient workflows
+- Maintain strict security in production instances
+- Configure different sets of approved tools for different use cases
+- Test custom MCP server implementations in isolation
 
 ### Configuring instance settings
 
@@ -149,6 +166,7 @@ Claude Desktop Manager uses several technologies to manage isolated instances:
 /
 ├── cmgr                    # Main executable script
 ├── lib/                    # Core libraries
+│   ├── dependencies.sh     # Dependency checking and installation
 │   ├── sandbox.sh          # Bubblewrap sandbox creation utilities
 │   ├── installer.sh        # Claude Desktop installation functions
 │   ├── instance.sh         # Instance management functions

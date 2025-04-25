@@ -6,11 +6,18 @@ set -euo pipefail
 
 # Load libraries
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/dependencies.sh"
 source "${SCRIPT_DIR}/lib/sandbox.sh"
 source "${SCRIPT_DIR}/lib/installer.sh"
 source "${SCRIPT_DIR}/lib/instance.sh"
 source "${SCRIPT_DIR}/lib/config.sh"
 source "${SCRIPT_DIR}/lib/desktop.sh"
+
+# Check for basic dependencies
+if ! check_dependencies; then
+    echo "Required dependencies are missing. Please install them as indicated above."
+    exit 1
+fi
 
 # Global variables
 CMGR_HOME="${HOME}/.cmgr"
