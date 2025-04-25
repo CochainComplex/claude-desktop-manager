@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Claude ({instance})
+Comment=Claude AI Assistant ({instance} instance)
+Exec={script_path} start {instance}
+Icon=claude-desktop
+Type=Application
+Terminal=false
+Categories=Office;Utility;Network;
+StartupWMClass=Claude
+X-CMGR-Instance={instance}
