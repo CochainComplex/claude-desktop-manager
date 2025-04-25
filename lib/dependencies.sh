@@ -27,7 +27,8 @@ check_dependencies() {
     fi
     
     # Only needed for building/installing
-    if [ "$1" = "full" ]; then
+    local check_type="${1:-basic}"
+    if [ "$check_type" = "full" ]; then
         if ! check_command "p7zip"; then
             missing_deps+=("p7zip-full")
         fi
@@ -54,7 +55,8 @@ check_dependencies() {
 
 # Install dependencies if missing
 install_dependencies() {
-    if ! check_dependencies "$1"; then
+    local install_type="${1:-basic}"
+    if ! check_dependencies "$install_type"; then
         echo "Attempting to install missing dependencies..."
         
         if ! sudo -v; then
@@ -67,7 +69,7 @@ install_dependencies() {
             return 1
         fi
         
-        if [ "$1" = "full" ]; then
+        if [ "$install_type" = "full" ]; then
             sudo apt install -y bubblewrap jq git p7zip-full wget nodejs npm
         else
             sudo apt install -y bubblewrap jq git
