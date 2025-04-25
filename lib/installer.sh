@@ -266,12 +266,19 @@ install_claude_in_sandbox() {
         log_warn "Could not find preload.js in ${template_dir}/scripts/"
     fi
     
-    # Copy the fix-listeners script if it exists
-    if [ -f "${template_dir}/scripts/fix-listeners.js" ]; then
-        cp -f "${template_dir}/scripts/fix-listeners.js" "${sandbox_home}/.config/claude-desktop/"
-        log_info "Copied fix-listeners.js to sandbox"
+    # Copy patch-app.js script if it exists
+    local scripts_dir="${SCRIPT_DIR}/../scripts"
+    
+    # Use absolute path if needed
+    if [ ! -d "${scripts_dir}" ] || [ ! -f "${scripts_dir}/patch-app.js" ]; then
+        scripts_dir="/home/awarth/Devstuff/claude-desktop-manager/scripts"
+    fi
+    
+    if [ -f "${scripts_dir}/patch-app.js" ]; then
+        cp -f "${scripts_dir}/patch-app.js" "${sandbox_home}/.config/claude-desktop/"
+        log_info "Copied patch-app.js to sandbox from ${scripts_dir}"
     else
-        log_warn "Could not find fix-listeners.js in ${template_dir}/scripts/"
+        log_warn "Could not find patch-app.js in ${scripts_dir}"
     fi
     
     if ! cp -f "$package_path" "${sandbox_home}/Downloads/"; then
@@ -372,303 +379,318 @@ EOF"; then
     if [ "$install_success" = "true" ]; then
         log_info "Claude Desktop installed successfully in sandbox '${sandbox_name}'!"
         
-        # Apply the MaxListenersExceededWarning fix
-        log_info "Applying MaxListenersExceededWarning fix..."
+        # Apply instance customization and MaxListenersExceededWarning fix
+        log_info "Applying instance customization and MaxListenersExceededWarning fix..."
         
-        if [ "$build_format" = "deb" ]; then
-            # Create the fix-listeners.js file directly in the sandbox
-            sandbox_script="${sandbox_home}/.config/claude-desktop/fix-listeners.js"
+        # Ensure patch-app.js is in the sandbox
+        sandbox_script="${sandbox_home}/.config/claude-desktop/patch-app.js"
+        if [ ! -f "$sandbox_script" ]; then
             mkdir -p "$(dirname "$sandbox_script")"
             
-            # Write the script content directly instead of copying
-            cat > "$sandbox_script" << 'EOF'
-// Node.js script to patch Electron app code to fix MaxListenersExceededWarning
+            # Use absolute path for script
+            local patcher_script="/home/awarth/Devstuff/claude-desktop-manager/scripts/patch-app.js"
+            
+            # Check if file exists before copying
+            if [ -f "$patcher_script" ]; then
+                cp -f "$patcher_script" "$sandbox_script" || \
+                log_warn "Failed to copy patch-app.js to sandbox"
+            else
+                # Create the script directly in the sandbox (inline)
+                cat > "$sandbox_script" << 'PATCHSCRIPT'
+// patch-app.js - Applies patches to Claude Desktop app.asar during installation
+// Used by Claude Desktop Manager to customize instance name and fix warnings
+
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-// Function to find .asar files (Electron app archives)
-function findAsarFiles(startPath) {
-  console.log(`Searching for asar files in: ${startPath}`);
+// Get instance name and asar path from arguments
+const instanceName = process.argv[2] || 'default';
+const asarPath = process.argv[3];
+
+if (!asarPath || !fs.existsSync(asarPath)) {
+  console.error(`Error: app.asar not found at ${asarPath}`);
+  process.exit(1);
+}
+
+console.log(`Patching app.asar for instance: ${instanceName}`);
+console.log(`ASAR path: ${asarPath}`);
+
+// Create extraction directory
+const extractDir = `${asarPath}-extracted`;
+if (fs.existsSync(extractDir)) {
+  console.log(`Removing existing extraction directory: ${extractDir}`);
+  fs.rmSync(extractDir, { recursive: true, force: true });
+}
+
+fs.mkdirSync(extractDir, { recursive: true });
+
+// Extract app.asar
+try {
+  console.log(`Extracting app.asar to: ${extractDir}`);
+  execSync(`npx asar extract "${asarPath}" "${extractDir}"`);
+} catch (error) {
+  console.error(`Error extracting asar file: ${error.message}`);
+  process.exit(1);
+}
+
+// Find main process files
+const findMainProcessFiles = (dir) => {
   let results = [];
   
   try {
-    // Check if the directory exists
-    if (!fs.existsSync(startPath)) {
-      console.log(`Directory not found: ${startPath}`);
-      return results;
-    }
+    const files = fs.readdirSync(dir);
     
-    const files = fs.readdirSync(startPath);
-    
-    for (let file of files) {
-      const filename = path.join(startPath, file);
-      const stat = fs.lstatSync(filename);
+    for (const file of files) {
+      const filePath = path.join(dir, file);
+      const stat = fs.lstatSync(filePath);
       
       if (stat.isDirectory()) {
-        // Recursively search directories
-        results = results.concat(findAsarFiles(filename));
-      } else if (filename.endsWith('.asar')) {
-        // Found an asar file
-        console.log(`Found asar file: ${filename}`);
-        results.push(filename);
-      }
-    }
-  } catch (error) {
-    console.error(`Error searching directory ${startPath}:`, error);
-  }
-  
-  return results;
-}
-
-// Main function to patch app files
-async function patchAppFiles() {
-  const appDir = process.argv[2] || process.cwd();
-  console.log(`Starting app patching process in: ${appDir}`);
-  
-  try {
-    // Find all asar files
-    const asarFiles = findAsarFiles(appDir);
-    
-    if (asarFiles.length === 0) {
-      console.log('No .asar files found. Trying to find loose app files...');
-      
-      // Try to find main process files directly
-      const mainJsFiles = findMainJsFiles(appDir);
-      
-      if (mainJsFiles.length > 0) {
-        for (const mainJsFile of mainJsFiles) {
-          patchMainFile(mainJsFile);
-        }
-      } else {
-        console.log('Could not find any main process files to patch.');
-      }
-      
-      // Also look for electron.js, main.js, etc.
-      const appFiles = [
-        path.join(appDir, 'electron.js'),
-        path.join(appDir, 'main.js'),
-        path.join(appDir, 'app.js'),
-        path.join(appDir, 'background.js'),
-        path.join(appDir, 'dist', 'electron.js'),
-        path.join(appDir, 'dist', 'main.js')
-      ];
-      
-      for (const file of appFiles) {
-        if (fs.existsSync(file)) {
-          console.log(`Found app file: ${file}`);
-          patchMainFile(file);
-        }
-      }
-      
-      return;
-    }
-    
-    // Process each asar file
-    for (const asarFile of asarFiles) {
-      await processAsarFile(asarFile);
-    }
-    
-    console.log('Patching process completed!');
-  } catch (error) {
-    console.error('Error in patching process:', error);
-  }
-}
-
-// Find main.js files directly in the file system
-function findMainJsFiles(startPath) {
-  console.log(`Searching for main process JS files in: ${startPath}`);
-  let results = [];
-  
-  try {
-    if (!fs.existsSync(startPath)) {
-      return results;
-    }
-    
-    const files = fs.readdirSync(startPath);
-    
-    for (let file of files) {
-      const filename = path.join(startPath, file);
-      const stat = fs.lstatSync(filename);
-      
-      if (stat.isDirectory()) {
-        results = results.concat(findMainJsFiles(filename));
+        results = results.concat(findMainProcessFiles(filePath));
       } else if (
         file === 'main.js' || 
         file === 'electron.js' || 
         file === 'background.js' ||
         file === 'app.js'
       ) {
-        console.log(`Found potential main process file: ${filename}`);
-        results.push(filename);
+        console.log(`Found potential main process file: ${filePath}`);
+        results.push(filePath);
       }
     }
   } catch (error) {
-    console.error(`Error searching directory ${startPath}:`, error);
+    console.error(`Error searching directory ${dir}:`, error);
   }
   
   return results;
+};
+
+const mainProcessFiles = findMainProcessFiles(extractDir);
+
+if (mainProcessFiles.length === 0) {
+  console.log(`No main process files found in ${extractDir}`);
+  process.exit(1);
 }
 
-// Process an asar file
-async function processAsarFile(asarFile) {
-  console.log(`Processing asar file: ${asarFile}`);
-  
-  // Create extraction directory
-  const extractDir = `${asarFile}-extracted`;
-  if (fs.existsSync(extractDir)) {
-    console.log(`Removing existing extraction directory: ${extractDir}`);
-    fs.rmSync(extractDir, { recursive: true, force: true });
+// Update package.json if it exists
+try {
+  const packageJsonPath = path.join(extractDir, 'package.json');
+  if (fs.existsSync(packageJsonPath)) {
+    console.log(`Updating package.json...`);
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    
+    // Update app name with instance name
+    if (packageJson.name) {
+      packageJson.name = `claude-desktop-${instanceName}`;
+    }
+    
+    // Update product name with instance name
+    if (packageJson.productName) {
+      packageJson.productName = `Claude (${instanceName})`;
+    }
+    
+    // Write back updated package.json
+    fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
+    console.log(`Updated package.json with instance name: ${instanceName}`);
   }
-  
-  fs.mkdirSync(extractDir, { recursive: true });
-  
-  try {
-    // Extract asar file
-    console.log(`Extracting asar to: ${extractDir}`);
-    execSync(`npx asar extract "${asarFile}" "${extractDir}"`);
-    
-    // Find main.js files
-    const mainJsFiles = findMainJsFiles(extractDir);
-    
-    if (mainJsFiles.length === 0) {
-      console.log(`No main process files found in ${asarFile}`);
-      return;
-    }
-    
-    // Patch each main file
-    for (const mainJsFile of mainJsFiles) {
-      patchMainFile(mainJsFile);
-    }
-    
-    // Re-pack the asar file
-    console.log(`Repacking asar file: ${asarFile}`);
-    
-    // Create backup of original asar
-    const backupFile = `${asarFile}.bak`;
-    if (!fs.existsSync(backupFile)) {
-      fs.copyFileSync(asarFile, backupFile);
-      console.log(`Created backup of original asar: ${backupFile}`);
-    }
-    
-    execSync(`npx asar pack "${extractDir}" "${asarFile}"`);
-    console.log(`Repacked asar file: ${asarFile}`);
-    
-    // Clean up
-    fs.rmSync(extractDir, { recursive: true, force: true });
-    console.log(`Removed extraction directory: ${extractDir}`);
-  } catch (error) {
-    console.error(`Error processing asar file ${asarFile}:`, error);
-  }
+} catch (error) {
+  console.error(`Error updating package.json: ${error.message}`);
+  // Continue even if package.json update fails
 }
 
-// Patch a main process file
-function patchMainFile(filePath) {
-  console.log(`Patching file: ${filePath}`);
-  
+// Patch main process files
+let patchedFiles = 0;
+for (const filePath of mainProcessFiles) {
   try {
+    console.log(`Patching file: ${filePath}`);
+    
+    // Backup the original file
+    fs.copyFileSync(filePath, `${filePath}.bak`);
+    
+    // Read file content
     let content = fs.readFileSync(filePath, 'utf8');
     
     // Check if file already patched
-    if (content.includes('// CMGR PATCH: MaxListenersExceededWarning fix')) {
+    if (content.includes('// CMGR: Instance name customization') || 
+        content.includes('// CMGR: MaxListenersExceededWarning fix')) {
       console.log(`File ${filePath} already patched. Skipping.`);
-      return;
+      continue;
     }
     
-    // Add patching code at the beginning of the file
+    // Create patch - simple and focused on the essential functionality
     const patch = `
-// CMGR PATCH: MaxListenersExceededWarning fix
+// CMGR: MaxListenersExceededWarning fix
+// CMGR: Instance name customization for ${instanceName}
+
+// Fix EventEmitter memory leak warnings
 const events = require('events');
 events.EventEmitter.defaultMaxListeners = 30;
 
-// Patch WebContents to increase listeners
-const { app, webContents } = require('electron');
-app.on('web-contents-created', (event, contents) => {
-  contents.setMaxListeners(30);
-});
+// Patch require to customize BrowserWindow titles
+const originalModule = require('module');
+const originalRequire = originalModule.prototype.require;
 
-// Patch any emitter creation
-const originalEmit = events.EventEmitter.prototype.emit;
-events.EventEmitter.prototype.emit = function(type, ...args) {
-  if (type === 'newListener' && this.listenerCount('newListener') === 0) {
-    this.setMaxListeners(30);
+originalModule.prototype.require = function(path) {
+  const result = originalRequire.apply(this, arguments);
+  
+  if (path === 'electron') {
+    const electron = result;
+    
+    // Patch app for WebContents
+    if (electron.app) {
+      // Increase listeners for app
+      if (electron.app.setMaxListeners) {
+        electron.app.setMaxListeners(30);
+      }
+      
+      // Patch WebContents when created
+      electron.app.on('web-contents-created', (event, contents) => {
+        if (contents.setMaxListeners) {
+          contents.setMaxListeners(30);
+        }
+      });
+    }
+    
+    // Customize BrowserWindow for instance name
+    const originalBrowserWindow = electron.BrowserWindow;
+    class CustomBrowserWindow extends originalBrowserWindow {
+      constructor(options = {}) {
+        // Add instance name to title
+        if (options.title) {
+          options.title = \`\${options.title} (${instanceName})\`;
+        } else {
+          options.title = \`Claude (${instanceName})\`;
+        }
+        
+        // Call original constructor with modified options
+        super(options);
+        
+        // Override setTitle to always include instance name
+        const originalSetTitle = this.setTitle;
+        this.setTitle = (title) => {
+          if (!title.includes('(${instanceName})')) {
+            return originalSetTitle.call(this, \`\${title} (${instanceName})\`);
+          }
+          return originalSetTitle.call(this, title);
+        };
+        
+        // Increase max listeners
+        if (this.setMaxListeners) {
+          this.setMaxListeners(30);
+        }
+      }
+    }
+    
+    // Replace BrowserWindow with our custom version
+    electron.BrowserWindow = CustomBrowserWindow;
+    
+    return electron;
   }
-  return originalEmit.apply(this, [type, ...args]);
+  
+  return result;
 };
-
-console.log('CMGR: Applied MaxListenersExceededWarning fix');
 
 `;
     
-    // Insert the patch at the beginning of the file
+    // Add the patch at the beginning of the file
     content = patch + content;
     
-    // Write the patched file
+    // Write the modified content back to the file
     fs.writeFileSync(filePath, content);
     console.log(`Successfully patched ${filePath}`);
+    patchedFiles++;
+    
   } catch (error) {
-    console.error(`Error patching file ${filePath}:`, error);
+    console.error(`Error patching file ${filePath}: ${error.message}`);
+    // Continue with other files even if one fails
   }
 }
 
-// Run the patching process
-patchAppFiles();
-EOF
-            
-            chmod +x "$sandbox_script"
-            log_info "Created fix-listeners.js script in sandbox"
-            
-            # Try to find the app installation directory
-            run_in_sandbox "$sandbox_name" bash -c "
-                # First check if nodejs and npm are installed
-                if ! command -v node &>/dev/null; then
-                    echo 'Installing Node.js for patching...'
-                    mkdir -p ~/.local/share/nodejs
-                    curl -sL https://nodejs.org/dist/v18.16.0/node-v18.16.0-linux-x64.tar.gz | tar xz -C ~/.local/share/nodejs --strip-components=1
-                    export PATH=~/.local/share/nodejs/bin:\$PATH
-                fi
-                
-                if ! command -v npx &>/dev/null; then
-                    # Install asar globally if npx is not available
-                    npm install -g asar
-                fi
-                
-                # Run the fix-listeners.js script pointing to the app directory
-                APP_DIR=\$(readlink -f ~/.local/share/claude-desktop || echo ~/.local/bin)
-                node ~/.config/claude-desktop/fix-listeners.js \$APP_DIR
-                
-                echo 'Patching completed!'
-            " || log_warn "Failed to apply MaxListenersExceededWarning fix, but installation completed."
-        else
-            # For AppImage, we need a different approach
-            run_in_sandbox "$sandbox_name" bash -c "
-                # First check if nodejs and npm are installed
-                if ! command -v node &>/dev/null; then
-                    echo 'Installing Node.js for patching...'
-                    mkdir -p ~/.local/share/nodejs
-                    curl -sL https://nodejs.org/dist/v18.16.0/node-v18.16.0-linux-x64.tar.gz | tar xz -C ~/.local/share/nodejs --strip-components=1
-                    export PATH=~/.local/share/nodejs/bin:\$PATH
-                fi
-                
-                # Create a wrapper script that sets ENV variables to suppress warnings
-                APPIMAGE=\$(find ~/Downloads -name '*.AppImage' | head -1)
-                if [ -n \"\$APPIMAGE\" ]; then
-                    echo 'Creating wrapper script for AppImage...'
-                    mv \"\$APPIMAGE\" \"\$APPIMAGE.original\"
-                    cat > \"\$APPIMAGE\" << 'EOF'
-#!/bin/bash
-# Wrapper script to prevent MaxListenersExceededWarning
-export NODE_OPTIONS='--no-warnings'
-export ELECTRON_NO_WARNINGS=1
+if (patchedFiles === 0) {
+  console.error('No files were patched. The installation customization failed.');
+  process.exit(1);
+}
 
-SCRIPT_DIR=\"\$(cd \"\$(dirname \"\${BASH_SOURCE[0]}\")\" && pwd)\"
-\"\$SCRIPT_DIR/\$(basename \"\$0\").original\" \"\$@\"
-EOF
-                    chmod +x \"\$APPIMAGE\"
-                    echo 'AppImage wrapper created successfully!'
-                fi
-            " || log_warn "Failed to apply MaxListenersExceededWarning fix, but installation completed."
+// Repack the asar file
+try {
+  console.log(`Repacking app.asar...`);
+  
+  // Create backup of original asar if it doesn't exist
+  const backupFile = `${asarPath}.original`;
+  if (!fs.existsSync(backupFile)) {
+    fs.copyFileSync(asarPath, backupFile);
+    console.log(`Created backup of original asar: ${backupFile}`);
+  }
+  
+  // Pack the modified files back into app.asar
+  execSync(`npx asar pack "${extractDir}" "${asarPath}"`);
+  console.log(`Successfully repacked app.asar`);
+  
+  // Clean up extraction directory
+  fs.rmSync(extractDir, { recursive: true, force: true });
+  console.log(`Removed extraction directory`);
+  
+  console.log(`Patching completed successfully!`);
+} catch (error) {
+  console.error(`Error repacking asar file: ${error.message}`);
+  process.exit(1);
+}
+PATCHSCRIPT
+                chmod +x "$sandbox_script"
+                log_info "Created patch-app.js directly in sandbox"
+            fi
         fi
+        
+        # Run the patcher script in the sandbox
+        run_in_sandbox "$sandbox_name" bash -c "
+            # First check if nodejs is installed
+            if ! command -v node &>/dev/null; then
+                echo 'Installing Node.js for patching...'
+                mkdir -p ~/.local/share/nodejs
+                curl -sL https://nodejs.org/dist/v18.16.0/node-v18.16.0-linux-x64.tar.gz | tar xz -C ~/.local/share/nodejs --strip-components=1
+                export PATH=~/.local/share/nodejs/bin:\$PATH
+            fi
+            
+            # Install asar if needed
+            if ! command -v asar &>/dev/null && ! command -v npx &>/dev/null; then
+                echo 'Installing asar...'
+                mkdir -p ~/.local/share/npm
+                npm config set prefix ~/.local/share/npm
+                export PATH=~/.local/share/npm/bin:\$PATH
+                npm install -g asar
+            fi
+            
+            # Find app.asar files
+            APP_DIRS=(~/.local/share/claude-desktop ~/.local/lib/claude-desktop /usr/lib/claude-desktop ~/.local/bin)
+            
+            for dir in \"\${APP_DIRS[@]}\"; do
+                if [ -d \"\$dir\" ]; then
+                    ASAR_FILE=\$(find \"\$dir\" -name 'app.asar' | head -1)
+                    if [ -n \"\$ASAR_FILE\" ]; then
+                        echo \"Found app.asar at \$ASAR_FILE\"
+                        
+                        # Run the patcher script with instance name and asar path
+                        echo \"Patching app.asar for instance '$sandbox_name'...\"
+                        node ~/.config/claude-desktop/patch-app.js \"$sandbox_name\" \"\$ASAR_FILE\"
+                        break
+                    fi
+                fi
+            done
+            
+            # If no ASAR found in standard locations, do a system-wide search
+            if [ -z \"\$ASAR_FILE\" ]; then
+                echo \"Searching for app.asar in various locations...\"
+                ASAR_FILE=\$(find ~/.local -name 'app.asar' | grep -i claude | head -1)
+                
+                if [ -n \"\$ASAR_FILE\" ]; then
+                    echo \"Found app.asar at \$ASAR_FILE\"
+                    node ~/.config/claude-desktop/patch-app.js \"$sandbox_name\" \"\$ASAR_FILE\"
+                else
+                    echo \"Could not find app.asar, skipping patching\"
+                fi
+            fi
+            
+            echo 'Installation and patching completed!'
+        " || log_warn "Failed to apply patches to app.asar, but installation completed."
         
         return 0
     else

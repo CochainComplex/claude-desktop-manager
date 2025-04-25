@@ -21,6 +21,7 @@ Commands:
   execute <n> [command]  Execute a Claude Desktop command in instance
   fix-warnings <n>       Fix MaxListenersExceededWarning in an instance
   update-title <n>       Update window title to show instance name
+  patch-app <n>          Patch app.asar directly with instance name and fix warnings
   help                   Show this help message
 
 Examples:
@@ -29,6 +30,7 @@ Examples:
   cmgr alias work                Create an alias for the work instance
   cmgr fix-warnings work         Fix MaxListenersExceededWarning in work instance
   cmgr update-title work         Update window title to show the instance name
+  cmgr patch-app work            Patch app.asar with instance name and fix warnings
   cmgr execute work getWindowArguments []  Run a Claude command in instance
 
 For more information, see the README.md file.
