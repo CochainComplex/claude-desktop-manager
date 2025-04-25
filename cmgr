@@ -4,8 +4,18 @@
 
 set -euo pipefail
 
-# Load libraries
+# Get absolute path to script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo "Main script directory: ${SCRIPT_DIR}"
+
+# Make sure templates directory exists
+if [ ! -d "${SCRIPT_DIR}/templates" ]; then
+    echo "WARNING: Templates directory not found at ${SCRIPT_DIR}/templates"
+    # Try to create it if it doesn't exist
+    mkdir -p "${SCRIPT_DIR}/templates/scripts"
+fi
+
+# Load libraries
 source "${SCRIPT_DIR}/lib/dependencies.sh"
 source "${SCRIPT_DIR}/lib/sandbox.sh"
 source "${SCRIPT_DIR}/lib/installer.sh"
@@ -124,17 +134,434 @@ cmd_fix_warnings() {
     
     echo "Applying MaxListenersExceededWarning fix to instance '$instance_name'..."
     
-    # Copy the fix-listeners script if it doesn't exist
+    # Get the sandbox directory
     local sandbox_home="${SANDBOX_BASE}/${instance_name}"
     mkdir -p "${sandbox_home}/.config/claude-desktop"
-    if [ ! -f "${sandbox_home}/.config/claude-desktop/fix-listeners.js" ]; then
-        cp -f "${SCRIPT_DIR}/templates/scripts/fix-listeners.js" "${sandbox_home}/.config/claude-desktop/"
+    mkdir -p "${sandbox_home}/.config/Claude/electron"
+    
+    # Use absolute path for template files
+    local template_dir="${SCRIPT_DIR}/templates"
+    if [ ! -d "${template_dir}" ]; then
+        # Try to find the templates directory using absolute path
+        template_dir="$(cd "${SCRIPT_DIR}" && cd .. && pwd)/templates"
+        # For safety, check if we're in the project root
+        if [ ! -d "${template_dir}" ]; then
+            # Last resort, use the path directly
+            template_dir="/home/awarth/Devstuff/claude-desktop-manager/templates"
+        fi
     fi
     
-    # Copy the enhanced preload script
-    cp -f "${SCRIPT_DIR}/templates/scripts/preload.js" "${sandbox_home}/.config/claude-desktop/"
-    mkdir -p "${sandbox_home}/.config/Claude/electron"
-    cp -f "${SCRIPT_DIR}/templates/scripts/preload.js" "${sandbox_home}/.config/Claude/electron/"
+    echo "Using templates directory: ${template_dir}"
+    
+    # Check if scripts directory exists
+    local scripts_dir="${template_dir}/scripts"
+    if [ ! -d "${scripts_dir}" ]; then
+        scripts_dir="${template_dir}"
+    fi
+    
+    # Create the fix-listeners.js script directly to avoid path issues
+    local fix_listeners_script="${sandbox_home}/.config/claude-desktop/fix-listeners.js"
+    echo "Creating fix-listeners.js at ${fix_listeners_script}"
+    
+    # Write the script content directly
+    cat > "$fix_listeners_script" << 'EOF'
+// Node.js script to patch Electron app code to fix MaxListenersExceededWarning
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+
+// Function to find .asar files (Electron app archives)
+function findAsarFiles(startPath) {
+  console.log(`Searching for asar files in: ${startPath}`);
+  let results = [];
+  
+  try {
+    // Check if the directory exists
+    if (!fs.existsSync(startPath)) {
+      console.log(`Directory not found: ${startPath}`);
+      return results;
+    }
+    
+    const files = fs.readdirSync(startPath);
+    
+    for (let file of files) {
+      const filename = path.join(startPath, file);
+      const stat = fs.lstatSync(filename);
+      
+      if (stat.isDirectory()) {
+        // Recursively search directories
+        results = results.concat(findAsarFiles(filename));
+      } else if (filename.endsWith('.asar')) {
+        // Found an asar file
+        console.log(`Found asar file: ${filename}`);
+        results.push(filename);
+      }
+    }
+  } catch (error) {
+    console.error(`Error searching directory ${startPath}:`, error);
+  }
+  
+  return results;
+}
+
+// Main function to patch app files
+async function patchAppFiles() {
+  const appDir = process.argv[2] || process.cwd();
+  console.log(`Starting app patching process in: ${appDir}`);
+  
+  try {
+    // Find all asar files
+    const asarFiles = findAsarFiles(appDir);
+    
+    if (asarFiles.length === 0) {
+      console.log('No .asar files found. Trying to find loose app files...');
+      
+      // Try to find main process files directly
+      const mainJsFiles = findMainJsFiles(appDir);
+      
+      if (mainJsFiles.length > 0) {
+        for (const mainJsFile of mainJsFiles) {
+          patchMainFile(mainJsFile);
+        }
+      } else {
+        console.log('Could not find any main process files to patch.');
+      }
+      
+      // Also look for electron.js, main.js, etc.
+      const appFiles = [
+        path.join(appDir, 'electron.js'),
+        path.join(appDir, 'main.js'),
+        path.join(appDir, 'app.js'),
+        path.join(appDir, 'background.js'),
+        path.join(appDir, 'dist', 'electron.js'),
+        path.join(appDir, 'dist', 'main.js')
+      ];
+      
+      for (const file of appFiles) {
+        if (fs.existsSync(file)) {
+          console.log(`Found app file: ${file}`);
+          patchMainFile(file);
+        }
+      }
+      
+      return;
+    }
+    
+    // Process each asar file
+    for (const asarFile of asarFiles) {
+      await processAsarFile(asarFile);
+    }
+    
+    console.log('Patching process completed!');
+  } catch (error) {
+    console.error('Error in patching process:', error);
+  }
+}
+
+// Find main.js files directly in the file system
+function findMainJsFiles(startPath) {
+  console.log(`Searching for main process JS files in: ${startPath}`);
+  let results = [];
+  
+  try {
+    if (!fs.existsSync(startPath)) {
+      return results;
+    }
+    
+    const files = fs.readdirSync(startPath);
+    
+    for (let file of files) {
+      const filename = path.join(startPath, file);
+      const stat = fs.lstatSync(filename);
+      
+      if (stat.isDirectory()) {
+        results = results.concat(findMainJsFiles(filename));
+      } else if (
+        file === 'main.js' || 
+        file === 'electron.js' || 
+        file === 'background.js' ||
+        file === 'app.js'
+      ) {
+        console.log(`Found potential main process file: ${filename}`);
+        results.push(filename);
+      }
+    }
+  } catch (error) {
+    console.error(`Error searching directory ${startPath}:`, error);
+  }
+  
+  return results;
+}
+
+// Process an asar file
+async function processAsarFile(asarFile) {
+  console.log(`Processing asar file: ${asarFile}`);
+  
+  // Create extraction directory
+  const extractDir = `${asarFile}-extracted`;
+  if (fs.existsSync(extractDir)) {
+    console.log(`Removing existing extraction directory: ${extractDir}`);
+    fs.rmSync(extractDir, { recursive: true, force: true });
+  }
+  
+  fs.mkdirSync(extractDir, { recursive: true });
+  
+  try {
+    // Extract asar file
+    console.log(`Extracting asar to: ${extractDir}`);
+    execSync(`npx asar extract "${asarFile}" "${extractDir}"`);
+    
+    // Find main.js files
+    const mainJsFiles = findMainJsFiles(extractDir);
+    
+    if (mainJsFiles.length === 0) {
+      console.log(`No main process files found in ${asarFile}`);
+      return;
+    }
+    
+    // Patch each main file
+    for (const mainJsFile of mainJsFiles) {
+      patchMainFile(mainJsFile);
+    }
+    
+    // Re-pack the asar file
+    console.log(`Repacking asar file: ${asarFile}`);
+    
+    // Create backup of original asar
+    const backupFile = `${asarFile}.bak`;
+    if (!fs.existsSync(backupFile)) {
+      fs.copyFileSync(asarFile, backupFile);
+      console.log(`Created backup of original asar: ${backupFile}`);
+    }
+    
+    execSync(`npx asar pack "${extractDir}" "${asarFile}"`);
+    console.log(`Repacked asar file: ${asarFile}`);
+    
+    // Clean up
+    fs.rmSync(extractDir, { recursive: true, force: true });
+    console.log(`Removed extraction directory: ${extractDir}`);
+  } catch (error) {
+    console.error(`Error processing asar file ${asarFile}:`, error);
+  }
+}
+
+// Patch a main process file
+function patchMainFile(filePath) {
+  console.log(`Patching file: ${filePath}`);
+  
+  try {
+    let content = fs.readFileSync(filePath, 'utf8');
+    
+    // Check if file already patched
+    if (content.includes('// CMGR PATCH: MaxListenersExceededWarning fix')) {
+      console.log(`File ${filePath} already patched. Skipping.`);
+      return;
+    }
+    
+    // Add patching code at the beginning of the file
+    const patch = `
+// CMGR PATCH: MaxListenersExceededWarning fix
+const events = require('events');
+events.EventEmitter.defaultMaxListeners = 30;
+
+// Patch WebContents to increase listeners
+const { app, webContents } = require('electron');
+app.on('web-contents-created', (event, contents) => {
+  contents.setMaxListeners(30);
+});
+
+// Patch any emitter creation
+const originalEmit = events.EventEmitter.prototype.emit;
+events.EventEmitter.prototype.emit = function(type, ...args) {
+  if (type === 'newListener' && this.listenerCount('newListener') === 0) {
+    this.setMaxListeners(30);
+  }
+  return originalEmit.apply(this, [type, ...args]);
+};
+
+console.log('CMGR: Applied MaxListenersExceededWarning fix');
+
+`;
+    
+    // Insert the patch at the beginning of the file
+    content = patch + content;
+    
+    // Write the patched file
+    fs.writeFileSync(filePath, content);
+    console.log(`Successfully patched ${filePath}`);
+  } catch (error) {
+    console.error(`Error patching file ${filePath}:`, error);
+  }
+}
+
+// Run the patching process
+patchAppFiles();
+EOF
+    
+    chmod +x "$fix_listeners_script"
+    
+    # Create the preload script directly
+    local preload_script="${sandbox_home}/.config/claude-desktop/preload.js"
+    local preload_script2="${sandbox_home}/.config/Claude/electron/preload.js"
+    
+    echo "Creating preload scripts at:"
+    echo "  - ${preload_script}"
+    echo "  - ${preload_script2}"
+    
+    # Write the same content to both locations
+    cat > "$preload_script" << 'EOF'
+// Enhanced preload.js - Fixes for common issues in Claude Desktop
+// This script runs in the Electron process context
+
+// Log that preload script is running
+console.log('CMGR: Enhanced preload script initializing');
+
+// Fix for MaxListenersExceededWarning
+if (typeof process !== 'undefined') {
+  try {
+    const events = require('events');
+    
+    // Increase max listeners to a higher value (default is 10)
+    events.EventEmitter.defaultMaxListeners = 30;
+    console.log('CMGR: Set default max listeners to 30');
+    
+    // Patch individual emitters when they're created
+    const originalEmit = events.EventEmitter.prototype.emit;
+    events.EventEmitter.prototype.emit = function(type, ...args) {
+      if (type === 'newListener' && this.listenerCount('newListener') === 0) {
+        // When a new emitter gets its first listener, increase its limit
+        if (this.setMaxListeners) {
+          this.setMaxListeners(30);
+        }
+      }
+      return originalEmit.apply(this, [type, ...args]);
+    };
+    
+    // Load electron conditionally
+    let electron;
+    try {
+      electron = require('electron');
+      
+      // Handle WebContents specifically
+      if (electron.app) {
+        // This runs in the main process
+        console.log('CMGR: Running in main process, patching app.on(web-contents-created)');
+        
+        // Patch app when web contents are created
+        electron.app.on('web-contents-created', (event, contents) => {
+          console.log('CMGR: New WebContents created, increasing its max listeners');
+          contents.setMaxListeners(30);
+        });
+      } else if (electron.remote && electron.remote.app) {
+        // This runs in the renderer process with remote module
+        console.log('CMGR: Running in renderer with remote, patching remote.app');
+        
+        electron.remote.app.on('web-contents-created', (event, contents) => {
+          contents.setMaxListeners(30);
+        });
+      }
+    } catch (electronError) {
+      console.log('CMGR: Electron module not available in this context:', electronError.message);
+    }
+    
+    console.log('CMGR: EventEmitter patching complete');
+  } catch (error) {
+    console.error('CMGR: Error patching EventEmitter:', error);
+  }
+}
+
+// Get the instance name from environment variable
+let instanceName = '';
+if (typeof process !== 'undefined' && process.env && process.env.CLAUDE_INSTANCE) {
+  instanceName = process.env.CLAUDE_INSTANCE;
+  console.log('CMGR: Instance name detected:', instanceName);
+}
+
+// Set the window title to include the instance name
+if (typeof window !== 'undefined' && instanceName) {
+  // Function to update the title
+  const updateTitle = () => {
+    const originalTitle = document.title;
+    
+    // Only update if the title doesn't already contain our instance name
+    if (!originalTitle.includes(`[${instanceName}]`)) {
+      document.title = `${originalTitle} [${instanceName}]`;
+      console.log('CMGR: Updated window title to:', document.title);
+    }
+  };
+  
+  // Update immediately if the document is already loaded
+  if (document.readyState === 'complete') {
+    updateTitle();
+  }
+  
+  // Otherwise wait for the document to load
+  window.addEventListener('load', updateTitle);
+  
+  // Set up a MutationObserver to detect title changes
+  const titleObserver = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (document.title && !document.title.includes(`[${instanceName}]`)) {
+        updateTitle();
+      }
+    });
+  });
+  
+  // Start observing the title element once it exists
+  const observeTitleElement = () => {
+    const titleElement = document.querySelector('title');
+    if (titleElement) {
+      titleObserver.observe(titleElement, { childList: true, subtree: true });
+      console.log('CMGR: Title observer attached');
+    } else {
+      // If title element doesn't exist yet, try again later
+      setTimeout(observeTitleElement, 500);
+    }
+  };
+  
+  // Start looking for the title element
+  setTimeout(observeTitleElement, 500);
+  
+  // Also observe the document body for changes that might affect the title
+  const bodyObserver = new MutationObserver(() => {
+    updateTitle();
+  });
+  
+  // Start observing once the body exists
+  if (document.body) {
+    bodyObserver.observe(document.body, { childList: true, subtree: true });
+  } else {
+    window.addEventListener('DOMContentLoaded', () => {
+      bodyObserver.observe(document.body, { childList: true, subtree: true });
+    });
+  }
+}
+
+// Suppress specific warnings by overriding console.warn
+if (typeof console !== 'undefined') {
+  const originalWarn = console.warn;
+  console.warn = function(...args) {
+    // Check if this is a MaxListenersExceededWarning
+    if (args[0] && typeof args[0] === 'string' && 
+        (args[0].includes('MaxListenersExceededWarning') || 
+         args[0].includes('Possible EventEmitter memory leak'))) {
+      // Suppress this warning
+      return;
+    }
+    
+    // Pass through other warnings
+    return originalWarn.apply(this, args);
+  };
+  
+  console.log('CMGR: Console warnings for MaxListenersExceededWarning suppressed');
+}
+
+// Print a reminder at the end for verification
+console.log('CMGR: Preload script initialization complete!');
+EOF
+    
+    # Copy the content to the second location
+    cp -f "$preload_script" "$preload_script2"
     
     # Run the fix-listeners.js script
     run_in_sandbox "$instance_name" bash -c "
@@ -223,11 +650,146 @@ cmd_update_title() {
     
     echo "Updating window title configuration for instance '$instance_name'..."
     
-    # Copy the update-window-titles.sh script to the sandbox
+    # Get the sandbox directory
     local sandbox_home="${SANDBOX_BASE}/${instance_name}"
     mkdir -p "${sandbox_home}/.config/claude-desktop"
-    cp -f "${SCRIPT_DIR}/templates/scripts/update-window-titles.sh" "${sandbox_home}/.config/claude-desktop/"
-    chmod +x "${sandbox_home}/.config/claude-desktop/update-window-titles.sh"
+    
+    # Create the update-window-titles script directly in the sandbox
+    local update_script="${sandbox_home}/.config/claude-desktop/update-window-titles.sh"
+    
+    # Write the script content directly
+    cat > "$update_script" << 'EOF'
+#!/bin/bash
+# update-window-titles.sh - Updates desktop entries and preload scripts to customize window titles
+
+set -e
+
+SANDBOX_HOME="$HOME"
+INSTANCE_NAME="${CLAUDE_INSTANCE:-claude}"
+
+echo "Updating window title configuration for instance: $INSTANCE_NAME"
+
+# Update desktop entries
+for desktop_file in "$SANDBOX_HOME/.local/share/applications/"*claude*.desktop; do
+    if [ -f "$desktop_file" ]; then
+        echo "Updating desktop entry: $desktop_file"
+        
+        # Add instance name to title
+        sed -i "s/^Name=.*/Name=Claude Desktop ($INSTANCE_NAME)/" "$desktop_file"
+        sed -i "s/^Comment=.*/Comment=Claude Desktop AI Assistant ($INSTANCE_NAME instance)/" "$desktop_file"
+        
+        # Update StartupWMClass
+        sed -i "s/^StartupWMClass=.*/StartupWMClass=Claude-$INSTANCE_NAME/" "$desktop_file"
+        
+        # Add environment variable to Exec line if not already present
+        if ! grep -q "CLAUDE_INSTANCE=$INSTANCE_NAME" "$desktop_file"; then
+            sed -i "s/^Exec=.*/Exec=env CLAUDE_INSTANCE=$INSTANCE_NAME LIBVA_DRIVER_NAME=dummy &/" "$desktop_file"
+        fi
+        
+        echo "✓ Desktop entry updated"
+    fi
+done
+
+# Ensure preload script exists and contains window title code
+for config_dir in "$SANDBOX_HOME/.config/claude-desktop" "$SANDBOX_HOME/.config/Claude/electron"; do
+    mkdir -p "$config_dir"
+    preload_file="$config_dir/preload.js"
+    
+    if [ -f "$preload_file" ]; then
+        # Check if window title code is already in the preload script
+        if ! grep -q "updateTitle" "$preload_file"; then
+            echo "Updating preload script: $preload_file"
+            cat >> "$preload_file" <<'PRELOADEOF'
+
+// Window title customization for instance: $INSTANCE_NAME
+if (typeof window !== 'undefined') {
+  const updateTitle = () => {
+    if (!document.title.includes('[$INSTANCE_NAME]')) {
+      document.title = document.title + ' [$INSTANCE_NAME]';
+    }
+  };
+  
+  if (document.readyState === 'complete') {
+    updateTitle();
+  }
+  
+  window.addEventListener('load', updateTitle);
+  
+  // Check periodically for title changes
+  setInterval(updateTitle, 1000);
+}
+PRELOADEOF
+            echo "✓ Preload script updated"
+        else
+            echo "✓ Preload script already contains window title customization"
+        fi
+    else
+        echo "Creating new preload script: $preload_file"
+        cat > "$preload_file" <<'PRELOADEOF'
+// Claude Desktop Manager preload script
+// Custom preload script for instance: $INSTANCE_NAME
+
+// Window title customization
+if (typeof window !== 'undefined') {
+  const updateTitle = () => {
+    if (!document.title.includes('[$INSTANCE_NAME]')) {
+      document.title = document.title + ' [$INSTANCE_NAME]';
+    }
+  };
+  
+  if (document.readyState === 'complete') {
+    updateTitle();
+  }
+  
+  window.addEventListener('load', updateTitle);
+  
+  // Check periodically for title changes
+  setInterval(updateTitle, 1000);
+}
+
+// Fix for MaxListenersExceededWarning
+if (typeof process !== 'undefined') {
+  try {
+    const events = require('events');
+    events.EventEmitter.defaultMaxListeners = 30;
+  } catch (error) {
+    console.error('Error setting default max listeners:', error);
+  }
+}
+PRELOADEOF
+        echo "✓ New preload script created"
+    fi
+done
+
+# Update configuration to use preload script
+config_file="$SANDBOX_HOME/.config/Claude/claude_desktop_config.json"
+mkdir -p "$(dirname "$config_file")"
+
+if [ -f "$config_file" ]; then
+    # Check if config already has preload script
+    if ! grep -q "electronInitScript" "$config_file"; then
+        echo "Updating Claude Desktop config to use preload script"
+        # Simple sed approach that works in most cases
+        sed -i 's/{/{\"electronInitScript\": \"$HOME\/.config\/Claude\/electron\/preload.js\", /' "$config_file"
+        echo "✓ Configuration updated"
+    else
+        echo "✓ Configuration already contains preload script setting"
+    fi
+else
+    echo "Creating new Claude Desktop config"
+    cat > "$config_file" <<'CONFIGEOF'
+{
+  "electronInitScript": "$HOME/.config/Claude/electron/preload.js"
+}
+CONFIGEOF
+    echo "✓ New configuration created"
+fi
+
+echo "Window title customization complete for instance: $INSTANCE_NAME"
+echo "Please restart Claude Desktop for changes to take effect."
+EOF
+    
+    chmod +x "$update_script"
     
     # Run the script in the sandbox
     run_in_sandbox "$instance_name" bash -c "CLAUDE_INSTANCE=\"$instance_name\" ~/.config/claude-desktop/update-window-titles.sh"

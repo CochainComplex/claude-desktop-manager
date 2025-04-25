@@ -58,72 +58,6 @@ if (typeof process !== 'undefined') {
   }
 }
 
-// Patch the DOM EventTarget for renderer process
-if (typeof window !== 'undefined') {
-  try {
-    // Store original addEventListener to maximize compatibility
-    const originalAddEventListener = EventTarget.prototype.addEventListener;
-    
-    // Create a cache of event types and listeners
-    window.__cmgr_eventCache = window.__cmgr_eventCache || {};
-    
-    // Patch addEventListener to deduplicate listeners
-    EventTarget.prototype.addEventListener = function(type, listener, options) {
-      // Create a cache for this element if it doesn't exist
-      const elemCache = window.__cmgr_eventCache[this] = window.__cmgr_eventCache[this] || {};
-      
-      // Create a cache for this event type if it doesn't exist
-      elemCache[type] = elemCache[type] || new Set();
-      
-      // Skip if we've already added this listener to this element for this event type
-      // Note: This is a simplification, as listener could be a different instance with same code
-      const listenerStr = listener.toString();
-      if (elemCache[type].has(listenerStr)) {
-        return;
-      }
-      
-      // Add to our cache
-      elemCache[type].add(listenerStr);
-      
-      // Call the original method
-      return originalAddEventListener.call(this, type, listener, options);
-    };
-    
-    console.log('CMGR: DOM EventTarget patched to prevent duplicate listeners');
-    
-    // Expose the script status to the window object for debugging
-    window.claudeDesktopManager = {
-      preloadLoaded: true,
-      version: '0.3.0',
-      patchedAt: new Date().toISOString(),
-      listenersPatched: true
-    };
-    
-    console.log('CMGR: Renderer process preload complete');
-  } catch (error) {
-    console.error('CMGR: Error patching DOM EventTarget:', error);
-  }
-}
-
-// Suppress specific warnings by overriding console.warn
-if (typeof console !== 'undefined') {
-  const originalWarn = console.warn;
-  console.warn = function(...args) {
-    // Check if this is a MaxListenersExceededWarning
-    if (args[0] && typeof args[0] === 'string' && 
-        (args[0].includes('MaxListenersExceededWarning') || 
-         args[0].includes('Possible EventEmitter memory leak'))) {
-      // Suppress this warning
-      return;
-    }
-    
-    // Pass through other warnings
-    return originalWarn.apply(this, args);
-  };
-  
-  console.log('CMGR: Console warnings for MaxListenersExceededWarning suppressed');
-}
-
 // Get the instance name from environment variable
 let instanceName = '';
 if (typeof process !== 'undefined' && process.env && process.env.CLAUDE_INSTANCE) {
@@ -189,6 +123,25 @@ if (typeof window !== 'undefined' && instanceName) {
       bodyObserver.observe(document.body, { childList: true, subtree: true });
     });
   }
+}
+
+// Suppress specific warnings by overriding console.warn
+if (typeof console !== 'undefined') {
+  const originalWarn = console.warn;
+  console.warn = function(...args) {
+    // Check if this is a MaxListenersExceededWarning
+    if (args[0] && typeof args[0] === 'string' && 
+        (args[0].includes('MaxListenersExceededWarning') || 
+         args[0].includes('Possible EventEmitter memory leak'))) {
+      // Suppress this warning
+      return;
+    }
+    
+    // Pass through other warnings
+    return originalWarn.apply(this, args);
+  };
+  
+  console.log('CMGR: Console warnings for MaxListenersExceededWarning suppressed');
 }
 
 // Print a reminder at the end for verification
