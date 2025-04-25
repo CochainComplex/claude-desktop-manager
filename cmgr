@@ -35,7 +35,7 @@ CMGR_REGISTRY="${CMGR_HOME}/registry.json"
 SANDBOX_BASE="${HOME}/sandboxes"
 
 # Ensure basic directories exist
-mkdir -p "${CMGR_HOME}" "${CMGR_CACHE}" "${SANDBOX_BASE}"
+mkdir -p "${CMGR_HOME}" "${CMGR_CACHE}" "${SANDBOX_BASE}" "${CMGR_HOME}/logs"
 
 # Initialize registry if it doesn't exist
 if [ ! -f "${CMGR_REGISTRY}" ]; then

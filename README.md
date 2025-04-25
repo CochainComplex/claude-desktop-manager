@@ -15,9 +15,10 @@ Claude Desktop Manager is a utility for creating and managing multiple isolated 
 - Create isolated Claude Desktop instances using bubblewrap sandboxing
 - Generate and manage quick-access aliases for each instance
 - Launch, list, and remove instances with simple commands
-- Support auto-approval of MCP tools per instance
+- Support auto-approval of MCP tools per instance with JavaScript injection
 - Configure custom MCP servers for different instances
 - Generate desktop shortcuts for system integration
+- Cache built packages to improve efficiency
 
 ## Prerequisites
 
@@ -192,3 +193,30 @@ This project is dual-licensed under the MIT License and Apache License 2.0, main
 
 - Based on [emsi/claude-desktop](https://github.com/emsi/claude-desktop)
 - Inspired by the original work from [aaddrick/claude-desktop-debian](https://github.com/aaddrick/claude-desktop-debian)
+
+## Recent Updates
+
+### 2025-04-25: Installation Process Improvements
+
+We've significantly improved the installation process to ensure compatibility with the latest version of the emsi/claude-desktop repository:
+
+- Fixed the build and caching system to properly use the upstream `install-claude-desktop.sh` script
+- Added enhanced error detection and recovery mechanisms
+- Improved MCP auto-approval with a more robust JavaScript injection system
+- Added better package detection for various naming patterns
+
+See [CHANGELOG.md](CHANGELOG.md) for more details on recent changes.
+
+## Known Issues
+
+- The AppImage format is not currently supported directly by the upstream installer script. When requesting the AppImage format, the manager will fall back to using the .deb format.
+- When using MCP auto-approval, the first approval may still require manual confirmation before the auto-approval script is fully loaded.
+
+## Troubleshooting
+
+If you encounter issues with instance creation:
+
+1. Check that all dependencies are properly installed
+2. Verify network connectivity for downloading the Claude Desktop installer
+3. Ensure you have sufficient disk space for the cached packages
+4. Check the logs in `~/.cmgr/logs/` for detailed error information

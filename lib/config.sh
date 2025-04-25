@@ -175,20 +175,51 @@ configure_mcp_auto_approve() {
     # Get config file path inside sandbox
     local sandbox_home="${SANDBOX_BASE}/${instance_name}"
     local config_file="${sandbox_home}/.config/Claude/claude_desktop_config.json"
+    local electron_dir="${sandbox_home}/.config/Claude/electron"
     
-    # Ensure config directory exists
+    # Ensure config directories exist
     mkdir -p "$(dirname "$config_file")"
+    mkdir -p "$electron_dir"
+    
+    # Copy the MCP auto-approve script to the instance
+    cp "${SCRIPT_DIR}/templates/mcp-auto-approve.js" "${electron_dir}/"
+    
+    # Create init script to inject the auto-approver
+    cat > "${electron_dir}/init.js" <<EOF
+// Claude Desktop MCP Auto-Approval Initializer
+const fs = require('fs');
+const path = require('path');
+
+try {
+  // Set up event listener for window creation
+  app.on('browser-window-created', (event, window) => {
+    window.webContents.on('did-finish-load', () => {
+      // Inject auto-approval script
+      const scriptPath = path.join(__dirname, 'mcp-auto-approve.js');
+      if (fs.existsSync(scriptPath)) {
+        const scriptContent = fs.readFileSync(scriptPath, 'utf8');
+        window.webContents.executeJavaScript(scriptContent)
+          .catch(err => console.error('Error injecting MCP auto-approver:', err));
+      }
+    });
+  });
+  console.log('MCP Auto-Approval system initialized from emsi/claude-desktop');
+} catch (error) {
+  console.error('Failed to initialize MCP Auto-Approval:', error);
+}
+EOF
     
     # Create or update config file
     if [ -f "$config_file" ]; then
         # Update existing config
-        jq '.autoApproveMCP = true' "$config_file" > "${config_file}.tmp" && \
+        jq '.autoApproveMCP = true | .electronInitScript = "/home/agent/.config/Claude/electron/init.js"' "$config_file" > "${config_file}.tmp" && \
         mv "${config_file}.tmp" "$config_file"
     else
         # Create new config
         cat > "$config_file" <<EOF
 {
-  "autoApproveMCP": true
+  "autoApproveMCP": true,
+  "electronInitScript": "/home/agent/.config/Claude/electron/init.js"
 }
 EOF
     fi

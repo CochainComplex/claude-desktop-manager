@@ -1,12 +1,35 @@
 #!/bin/bash
 # installer.sh - Installation and caching utilities for Claude Desktop Manager
 
+# Set up logging
+log_message() {
+    local level="$1"
+    local message="$2"
+    local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+    local log_file="${CMGR_HOME}/logs/installer.log"
+    
+    # Create log directory if it doesn't exist
+    mkdir -p "$(dirname "$log_file")"
+    
+    # Log to file
+    echo "[$timestamp] [$level] $message" >> "$log_file"
+    
+    # Log to console if not INFO
+    if [ "$level" != "INFO" ]; then
+        echo "[$level] $message"
+    fi
+}
+
+log_info() { log_message "INFO" "$1"; }
+log_warn() { log_message "WARN" "$1"; }
+log_error() { log_message "ERROR" "$1"; }
+
 # Build and cache Claude Desktop
 build_and_cache_claude() {
     local build_format="${1:-deb}"
     local cache_dir="${CMGR_CACHE}"
     
-    echo "Building and caching Claude Desktop (${build_format})..."
+    log_info "Building and caching Claude Desktop (${build_format})..."
     
     # Ensure cache directory exists
     mkdir -p "${cache_dir}"
@@ -17,43 +40,78 @@ build_and_cache_claude() {
     
     # Clone the claude-desktop repository
     if ! git clone https://github.com/emsi/claude-desktop.git "$build_dir"; then
-        echo "Error: Failed to clone repository."
+        log_error "Failed to clone repository."
         rm -rf "$build_dir"
         return 1
     fi
     
-    # Execute build script in a subshell to ensure proper directory handling
-    if ! (cd "$build_dir" && ./build.sh --build "$build_format" --clean no); then
-        echo "Error: Failed to build Claude Desktop."
+    # Execute the installation script in a subshell to ensure proper directory handling
+    # Create a temporary directory for the build output
+    local build_output_dir="${build_dir}/build"
+    mkdir -p "$build_output_dir"
+    
+    log_info "Using install-claude-desktop.sh to build Claude Desktop..."
+    
+    # Modify the script to only build and not install
+    if ! (cd "$build_dir" && chmod +x ./install-claude-desktop.sh && \
+         sed -i 's/sudo dpkg -i "$DEB_FILE"/echo "Package built at: $DEB_FILE"/g' ./install-claude-desktop.sh && \
+         ./install-claude-desktop.sh); then
+        log_error "Failed to build Claude Desktop."
         rm -rf "$build_dir"
         return 1
     fi
     
-    # Find the built package
+    # Find the built package with more robust search
     local package_file=""
     if [ "$build_format" = "deb" ]; then
-        package_file=$(find "$build_dir" -maxdepth 1 -name "claude-desktop_*.deb" | head -1)
+        # First try the exact pattern
+        package_file=$(find "$build_dir" -type f -name "claude-desktop_*.deb" | head -1)
+        
+        # If not found, try a more generic search
+        if [ -z "$package_file" ]; then
+            package_file=$(find "$build_dir" -type f -name "*.deb" | grep -i claude | head -1)
+        fi
     else
-        package_file=$(find "$build_dir" -maxdepth 1 -name "claude-desktop-*.AppImage" | head -1)
+        # Currently the install script only supports deb packages
+        log_warn "AppImage format not directly supported by the installer. Using .deb format instead."
+        package_file=$(find "$build_dir" -type f -name "*.deb" | grep -i claude | head -1)
     fi
     
     if [ -z "$package_file" ]; then
-        echo "Error: No ${build_format} package found after build."
+        log_error "No package found after build."
+        log_info "Searching for any .deb files in the build directory:"
+        find "$build_dir" -type f -name "*.deb" | xargs -I{} log_info "Found: {}"
         rm -rf "$build_dir"
         return 1
     fi
     
-    # Extract version from filename
+    log_info "Found package: $package_file"
+    
+    # Extract version from filename with more robust pattern matching
     local version=""
-    if [ "$build_format" = "deb" ]; then
-        version=$(echo "$(basename "$package_file")" | grep -oP 'claude-desktop_\K[0-9]+\.[0-9]+\.[0-9]+(?=_)' || echo "unknown")
+    local package_basename=$(basename "$package_file")
+    
+    # Try different version extraction patterns
+    if [[ "$package_basename" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+        # Extract version using regex match
+        version="${BASH_REMATCH[1]}"
+    elif [ "$build_format" = "deb" ]; then
+        # Try specific deb pattern
+        version=$(echo "$package_basename" | grep -oP 'claude-desktop_\K[0-9]+\.[0-9]+\.[0-9]+(?=_)' || echo "")
     else
-        version=$(echo "$(basename "$package_file")" | grep -oP 'claude-desktop-\K[0-9]+\.[0-9]+\.[0-9]+(?=-)' || echo "unknown")
+        # Try specific AppImage pattern
+        version=$(echo "$package_basename" | grep -oP 'claude-desktop-\K[0-9]+\.[0-9]+\.[0-9]+(?=-)' || echo "")
+    fi
+    
+    # If all else fails, use a timestamp as the version
+    if [ -z "$version" ]; then
+        version="0.0.1-$(date +%Y%m%d%H%M%S)"
+        log_warn "Could not extract version from filename, using generated version: $version"
     fi
     
     # Copy package to cache
     if ! cp "$package_file" "${cache_dir}/"; then
-        echo "Error: Failed to copy package to cache directory."
+        log_error "Failed to copy package to cache directory."
         rm -rf "$build_dir"
         return 1
     fi
@@ -68,7 +126,7 @@ build_and_cache_claude() {
 }
 EOF
     then
-        echo "Error: Failed to create metadata file."
+        log_error "Failed to create metadata file."
         rm -rf "$build_dir"
         return 1
     fi
@@ -76,7 +134,7 @@ EOF
     # Clean up build directory
     rm -rf "$build_dir"
     
-    echo "Claude Desktop ${version} (${build_format}) cached successfully!"
+    log_info "Claude Desktop ${version} (${build_format}) cached successfully!"
     return 0
 }
 
@@ -94,16 +152,16 @@ install_claude_in_sandbox() {
     
     # Build Claude Desktop if no cached version exists
     if [ ! -f "$metadata_file" ]; then
-        echo "No cached Claude Desktop build found. Building now..."
+        log_info "No cached Claude Desktop build found. Building now..."
         if ! build_and_cache_claude "$build_format"; then
-            echo "Error: Failed to build Claude Desktop."
+            log_error "Failed to build Claude Desktop."
             return 1
         fi
     fi
     
     # Read metadata - with error handling
     if [ ! -f "$metadata_file" ]; then
-        echo "Error: Metadata file not found after build."
+        log_error "Metadata file not found after build."
         return 1
     fi
     
@@ -115,15 +173,15 @@ install_claude_in_sandbox() {
     
     # If metadata is unreadable or format doesn't match, rebuild
     if [ -z "$cached_format" ] || [ "$cached_format" != "$build_format" ]; then
-        echo "Cached format (${cached_format:-unknown}) doesn't match requested format (${build_format}). Building..."
+        log_info "Cached format (${cached_format:-unknown}) doesn't match requested format (${build_format}). Building..."
         if ! build_and_cache_claude "$build_format"; then
-            echo "Error: Failed to build Claude Desktop with format ${build_format}."
+            log_error "Failed to build Claude Desktop with format ${build_format}."
             return 1
         fi
         
         # Verify metadata file was created
         if [ ! -f "$metadata_file" ]; then
-            echo "Error: Metadata file not found after rebuild."
+            log_error "Metadata file not found after rebuild."
             return 1
         fi
         
@@ -138,7 +196,7 @@ install_claude_in_sandbox() {
     fi
     
     if [ -z "$package_file" ]; then
-        echo "Error: Could not determine package file from metadata."
+        log_error "Could not determine package file from metadata."
         return 1
     fi
     
@@ -146,9 +204,9 @@ install_claude_in_sandbox() {
     
     # Verify package exists
     if [ ! -f "$package_path" ]; then
-        echo "Cached package file not found. Rebuilding..."
+        log_info "Cached package file not found. Rebuilding..."
         if ! build_and_cache_claude "$build_format"; then
-            echo "Error: Failed to rebuild Claude Desktop."
+            log_error "Failed to rebuild Claude Desktop."
             return 1
         fi
         
@@ -157,26 +215,26 @@ install_claude_in_sandbox() {
             package_file=$(grep -o '"file": "[^"]*"' "$metadata_file" 2>/dev/null | cut -d'"' -f4)
             package_path="${cache_dir}/${package_file}"
         else
-            echo "Error: Metadata file not found after rebuild."
+            log_error "Metadata file not found after rebuild."
             return 1
         fi
         
         # Final verification
         if [ ! -f "$package_path" ]; then
-            echo "Error: Package file still not found after rebuild: ${package_path}"
+            log_error "Package file still not found after rebuild: ${package_path}"
             return 1
         fi
     fi
     
     # Install in sandbox
-    echo "Installing Claude Desktop in sandbox '${sandbox_name}'..."
+    log_info "Installing Claude Desktop in sandbox '${sandbox_name}'..."
     
     # Copy package to sandbox
     local sandbox_home="${SANDBOX_BASE}/${sandbox_name}"
     mkdir -p "${sandbox_home}/Downloads"
     
     if ! cp -f "$package_path" "${sandbox_home}/Downloads/"; then
-        echo "Error: Failed to copy package to sandbox."
+        log_error "Failed to copy package to sandbox."
         return 1
     fi
     
@@ -213,10 +271,10 @@ EOF"; then
     fi
     
     if [ "$install_success" = "true" ]; then
-        echo "Claude Desktop installed successfully in sandbox '${sandbox_name}'!"
+        log_info "Claude Desktop installed successfully in sandbox '${sandbox_name}'!"
         return 0
     else
-        echo "Error: Failed to install Claude Desktop in sandbox."
+        log_error "Failed to install Claude Desktop in sandbox."
         return 1
     fi
 }
