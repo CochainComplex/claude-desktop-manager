@@ -124,5 +124,72 @@ if (typeof console !== 'undefined') {
   console.log('CMGR: Console warnings for MaxListenersExceededWarning suppressed');
 }
 
+// Get the instance name from environment variable
+let instanceName = '';
+if (typeof process !== 'undefined' && process.env && process.env.CLAUDE_INSTANCE) {
+  instanceName = process.env.CLAUDE_INSTANCE;
+  console.log('CMGR: Instance name detected:', instanceName);
+}
+
+// Set the window title to include the instance name
+if (typeof window !== 'undefined' && instanceName) {
+  // Function to update the title
+  const updateTitle = () => {
+    const originalTitle = document.title;
+    
+    // Only update if the title doesn't already contain our instance name
+    if (!originalTitle.includes(`[${instanceName}]`)) {
+      document.title = `${originalTitle} [${instanceName}]`;
+      console.log('CMGR: Updated window title to:', document.title);
+    }
+  };
+  
+  // Update immediately if the document is already loaded
+  if (document.readyState === 'complete') {
+    updateTitle();
+  }
+  
+  // Otherwise wait for the document to load
+  window.addEventListener('load', updateTitle);
+  
+  // Set up a MutationObserver to detect title changes
+  const titleObserver = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (document.title && !document.title.includes(`[${instanceName}]`)) {
+        updateTitle();
+      }
+    });
+  });
+  
+  // Start observing the title element once it exists
+  const observeTitleElement = () => {
+    const titleElement = document.querySelector('title');
+    if (titleElement) {
+      titleObserver.observe(titleElement, { childList: true, subtree: true });
+      console.log('CMGR: Title observer attached');
+    } else {
+      // If title element doesn't exist yet, try again later
+      setTimeout(observeTitleElement, 500);
+    }
+  };
+  
+  // Start looking for the title element
+  setTimeout(observeTitleElement, 500);
+  
+  // Also observe the document body for changes that might affect the title
+  const bodyObserver = new MutationObserver(() => {
+    updateTitle();
+  });
+  
+  // Start observing once the body exists
+  if (document.body) {
+    bodyObserver.observe(document.body, { childList: true, subtree: true });
+  } else {
+    window.addEventListener('DOMContentLoaded', () => {
+      bodyObserver.observe(document.body, { childList: true, subtree: true });
+    });
+  }
+}
+
 // Print a reminder at the end for verification
 console.log('CMGR: Preload script initialization complete!');

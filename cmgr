@@ -206,6 +206,36 @@ EOF
     return 0
 }
 
+cmd_update_title() {
+    local instance_name="$1"
+    
+    if [ -z "$instance_name" ]; then
+        echo "Error: Missing instance name"
+        cmd_help
+        exit 1
+    fi
+    
+    # Check if instance exists
+    if ! instance_exists "$instance_name"; then
+        echo "Error: Instance '$instance_name' does not exist."
+        return 1
+    fi
+    
+    echo "Updating window title configuration for instance '$instance_name'..."
+    
+    # Copy the update-window-titles.sh script to the sandbox
+    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
+    mkdir -p "${sandbox_home}/.config/claude-desktop"
+    cp -f "${SCRIPT_DIR}/templates/scripts/update-window-titles.sh" "${sandbox_home}/.config/claude-desktop/"
+    chmod +x "${sandbox_home}/.config/claude-desktop/update-window-titles.sh"
+    
+    # Run the script in the sandbox
+    run_in_sandbox "$instance_name" bash -c "CLAUDE_INSTANCE=\"$instance_name\" ~/.config/claude-desktop/update-window-titles.sh"
+    
+    echo "✓ Window title configuration updated. Please restart the instance for changes to take effect."
+    return 0
+}
+
 cmd_help() {
     show_help
 }
@@ -298,6 +328,9 @@ main() {
             ;;
         fix-warnings)
             cmd_fix_warnings "$@"
+            ;;
+        update-title)
+            cmd_update_title "$@"
             ;;
         help|--help|-h)
             cmd_help

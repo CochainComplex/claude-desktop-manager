@@ -70,7 +70,7 @@ Icon=claude-desktop
 Type=Application
 Terminal=false
 Categories=Office;Utility;Network;
-StartupWMClass=Claude
+StartupWMClass=Claude-$instance_name
 X-CMGR-Instance=$instance_name
 EOF
     

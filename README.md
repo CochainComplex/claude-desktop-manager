@@ -105,6 +105,9 @@ cmgr config work --global-shortcut="CommandOrControl+Shift+A"
 # Hide system tray icon for an instance
 cmgr config personal --hide-tray
 
+# Update window title to show the instance name
+cmgr update-title research
+
 # Create a command alias for quick access
 cmgr alias work work-claude
 
@@ -141,6 +144,25 @@ Claude Desktop Manager implements several techniques to ensure compatibility wit
 These measures prevent common errors like:
 - `libva error: i965_drv_video.so init failed`
 - `Automatic fallback to software WebGL has been deprecated`
+
+## Window Title Customization
+
+Claude Desktop Manager now includes window title customization to help you identify different instances more easily. Each Claude Desktop window will show its instance name in the title bar (e.g., "Claude [work]"), making it easier to distinguish between multiple open instances.
+
+This feature is automatically enabled for new instances created with the latest version. For existing instances, you can enable it with:
+
+```bash
+cmgr update-title my-instance
+```
+
+The window title customization works through several complementary mechanisms:
+
+1. **Environment Variables**: Each instance is launched with a `CLAUDE_INSTANCE` environment variable
+2. **Preload Script**: A script monitors and updates the window title to include the instance name
+3. **Desktop Entry**: The `StartupWMClass` is set to `Claude-<instance-name>` for proper window manager integration
+4. **Application Title**: The application title shown in the desktop environment includes the instance name
+
+This helps you keep track of which instance is which, especially when working with multiple Claude personas or projects.
 
 ## Max Listeners Warning Fix
 

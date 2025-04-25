@@ -301,15 +301,15 @@ install_claude_in_sandbox() {
             # Create desktop entry file in the sandbox
             run_in_sandbox "$sandbox_name" bash -c "mkdir -p $HOME/.local/share/applications && cat > $HOME/.local/share/applications/claude-desktop.desktop << EOF
 [Desktop Entry]
-Name=Claude Desktop
-Comment=Claude Desktop AI Assistant
-Exec=env LIBVA_DRIVER_NAME=dummy $HOME/.local/bin/claude-desktop --disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js %u
+Name=Claude Desktop ($sandbox_name)
+Comment=Claude Desktop AI Assistant ($sandbox_name instance)
+Exec=env CLAUDE_INSTANCE=$sandbox_name LIBVA_DRIVER_NAME=dummy $HOME/.local/bin/claude-desktop --disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js %u
 Icon=claude-desktop
 Type=Application
 Terminal=false
 Categories=Office;Utility;Network;
 MimeType=x-scheme-handler/claude;
-StartupWMClass=Claude
+StartupWMClass=Claude-$sandbox_name
 EOF"
             
             # Also copy any application resources from the extracted package
@@ -329,15 +329,15 @@ EOF"
             # Run in sandbox to create desktop entry
             if run_in_sandbox "$sandbox_name" bash -c "cat > ${desktop_dir}/claude-desktop.desktop << EOF
 [Desktop Entry]
-Name=Claude Desktop
-Comment=Claude Desktop AI Assistant
-Exec=env LIBVA_DRIVER_NAME=dummy ${appimage_file} --disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js %u
+Name=Claude Desktop ($sandbox_name)
+Comment=Claude Desktop AI Assistant ($sandbox_name instance)
+Exec=env CLAUDE_INSTANCE=$sandbox_name LIBVA_DRIVER_NAME=dummy ${appimage_file} --disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js %u
 Icon=claude-desktop
 Type=Application
 Terminal=false
 Categories=Office;Utility;Network;
 MimeType=x-scheme-handler/claude;
-StartupWMClass=Claude
+StartupWMClass=Claude-$sandbox_name
 EOF"; then
                 install_success=true
             fi

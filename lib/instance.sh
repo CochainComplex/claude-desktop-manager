@@ -264,9 +264,12 @@ start_instance() {
             
             # Export LIBVA_DRIVER_NAME to avoid libva errors
             export LIBVA_DRIVER_NAME=dummy
+            # Set the CLAUDE_INSTANCE environment variable for window title
+            export CLAUDE_INSTANCE="$CLAUDE_INSTANCE"
             
             if [ -x "$HOME/.local/bin/claude-desktop" ]; then
                 echo "Starting Claude Desktop (deb format) with flags: $ELECTRON_FLAGS"
+                echo "Instance name: $CLAUDE_INSTANCE"
                 $HOME/.local/bin/claude-desktop $ELECTRON_FLAGS
             else
                 echo "Error: Claude Desktop not found at $HOME/.local/bin/claude-desktop"
@@ -306,11 +309,14 @@ start_instance() {
             
             # Export LIBVA_DRIVER_NAME to avoid libva errors
             export LIBVA_DRIVER_NAME=dummy
+            # Set the CLAUDE_INSTANCE environment variable for window title
+            export CLAUDE_INSTANCE="$CLAUDE_INSTANCE"
             
             # Find AppImage
             appimage_file=$(find "$HOME/Downloads" -type f -name "*.AppImage" | head -1)
             if [ -n "$appimage_file" ] && [ -x "$appimage_file" ]; then
                 echo "Starting Claude Desktop (AppImage format) with flags: $ELECTRON_FLAGS"
+                echo "Instance name: $CLAUDE_INSTANCE"
                 $appimage_file $ELECTRON_FLAGS
             else
                 echo "Error: AppImage not found or not executable"
