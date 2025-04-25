@@ -226,7 +226,7 @@ start_instance() {
     
     # Start Claude Desktop in the sandbox
     if [ "$build_format" = "deb" ]; then
-        run_in_sandbox "$instance_name" /home/agent/.local/bin/claude-desktop &
+        run_in_sandbox "$instance_name" "$HOME/.local/bin/claude-desktop" &
     else
         # Find AppImage in sandbox
         local appimage_file
@@ -240,7 +240,7 @@ start_instance() {
         appimage_file=$(basename "$appimage_file")
         
         # Execute in sandbox
-        run_in_sandbox "$instance_name" "/home/agent/Downloads/${appimage_file}" &
+        run_in_sandbox "$instance_name" "$HOME/Downloads/${appimage_file}" &
     fi
     
     # Update instance status

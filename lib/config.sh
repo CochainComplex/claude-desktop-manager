@@ -58,12 +58,14 @@ configure_global_shortcut() {
     
     echo "Configuring global shortcut for instance '$instance_name' to '$shortcut'..."
     
-    # Get config file path inside sandbox
+    # Config file is inside the sandbox but from the user's perspective
+    # it should be at the regular ~/.config path
     local sandbox_home="${SANDBOX_BASE}/${instance_name}"
-    local config_file="${sandbox_home}/.config/Claude/claude_desktop_config.json"
+    local config_dir="${sandbox_home}/.config/Claude"
+    local config_file="${config_dir}/claude_desktop_config.json"
     
     # Ensure config directory exists
-    mkdir -p "$(dirname "$config_file")"
+    mkdir -p "${config_dir}"
     
     # Create or update config file
     if [ -f "$config_file" ]; then
@@ -172,14 +174,14 @@ configure_mcp_auto_approve() {
     
     echo "Configuring MCP auto-approval for instance '$instance_name'..."
     
-    # Get config file path inside sandbox
     local sandbox_home="${SANDBOX_BASE}/${instance_name}"
-    local config_file="${sandbox_home}/.config/Claude/claude_desktop_config.json"
-    local electron_dir="${sandbox_home}/.config/Claude/electron"
+    local config_dir="${sandbox_home}/.config/Claude"
+    local config_file="${config_dir}/claude_desktop_config.json"
+    local electron_dir="${config_dir}/electron"
     
     # Ensure config directories exist
-    mkdir -p "$(dirname "$config_file")"
-    mkdir -p "$electron_dir"
+    mkdir -p "${config_dir}"
+    mkdir -p "${electron_dir}"
     
     # Copy the MCP auto-approve script to the instance
     cp "${SCRIPT_DIR}/templates/mcp-auto-approve.js" "${electron_dir}/"
@@ -211,15 +213,15 @@ EOF
     
     # Create or update config file
     if [ -f "$config_file" ]; then
-        # Update existing config
-        jq '.autoApproveMCP = true | .electronInitScript = "/home/agent/.config/Claude/electron/init.js"' "$config_file" > "${config_file}.tmp" && \
+        # Update existing config with the path as it would appear inside the sandbox
+        jq '.autoApproveMCP = true | .electronInitScript = "$HOME/.config/Claude/electron/init.js"' "$config_file" > "${config_file}.tmp" && \
         mv "${config_file}.tmp" "$config_file"
     else
         # Create new config
         cat > "$config_file" <<EOF
 {
   "autoApproveMCP": true,
-  "electronInitScript": "/home/agent/.config/Claude/electron/init.js"
+  "electronInitScript": "$HOME/.config/Claude/electron/init.js"
 }
 EOF
     fi

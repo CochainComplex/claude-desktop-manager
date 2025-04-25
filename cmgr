@@ -25,14 +25,18 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
     ORIGINAL_USER="${SUDO_USER}"
     ORIGINAL_HOME=$(eval echo ~${SUDO_USER})
     CMGR_HOME="${ORIGINAL_HOME}/.cmgr"
+    SANDBOX_BASE="${ORIGINAL_HOME}/sandboxes"
+    
+    # Make sure we don't use root's home
+    export HOME="${ORIGINAL_HOME}"
 else
     # Running as regular user
     CMGR_HOME="${HOME}/.cmgr"
+    SANDBOX_BASE="${HOME}/sandboxes"
 fi
 
 CMGR_CACHE="${CMGR_HOME}/cache"
 CMGR_REGISTRY="${CMGR_HOME}/registry.json"
-SANDBOX_BASE="${HOME}/sandboxes"
 
 # Ensure basic directories exist
 mkdir -p "${CMGR_HOME}" "${CMGR_CACHE}" "${SANDBOX_BASE}" "${CMGR_HOME}/logs"

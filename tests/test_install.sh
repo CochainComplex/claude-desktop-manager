@@ -63,14 +63,14 @@ if ! install_claude_in_sandbox "${TEST_INSTANCE}" "deb"; then
 fi
 
 echo "Testing if Claude Desktop binary exists in sandbox..."
-if ! run_in_sandbox "${TEST_INSTANCE}" test -f /home/agent/.local/bin/claude-desktop; then
+if ! run_in_sandbox "${TEST_INSTANCE}" test -f "$HOME/.local/bin/claude-desktop"; then
     echo "ERROR: Claude Desktop binary not found in sandbox"
     remove_instance "${TEST_INSTANCE}"
     exit 1
 fi
 
 echo "Testing if desktop file exists in sandbox..."
-if ! run_in_sandbox "${TEST_INSTANCE}" test -f /home/agent/.local/share/applications/claude-desktop.desktop; then
+if ! run_in_sandbox "${TEST_INSTANCE}" test -f "$HOME/.local/share/applications/claude-desktop.desktop"; then
     echo "ERROR: Desktop file not found in sandbox"
     remove_instance "${TEST_INSTANCE}"
     exit 1

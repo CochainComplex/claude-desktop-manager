@@ -1,6 +1,16 @@
 #!/bin/bash
 # sandbox.sh - Enhanced sandbox management module for Claude Desktop Manager
 
+# Get the sandbox home directory - can be used by other modules
+get_sandbox_homedir() {
+    echo "/home/$(whoami)"
+}
+
+# Get the sandbox username
+get_sandbox_username() {
+    echo "$(whoami)"
+}
+
 # Create a sandbox environment
 create_sandbox() {
     local sandbox_name="$1"
@@ -15,10 +25,8 @@ create_sandbox() {
     # Create sandbox directory
     mkdir -p "$sandbox_home"
     
-    # Create fake passwd file for user mapping
-    grep "^$(whoami)" /etc/passwd | \
-        sed "s#[^\:]*:x:\([0-9\:]*\).*#agent:x:\1Agent:/home/agent:/bin/bash#" > \
-        "${SANDBOX_BASE}/fake_passwd.${sandbox_name}"
+    # Create fake passwd file for user mapping - keep the original user's entry
+    grep "^$(whoami):" /etc/passwd > "${SANDBOX_BASE}/fake_passwd.${sandbox_name}"
     
     # Create initialization script
     cat > "${sandbox_home}/init.sh" <<EOF
@@ -62,11 +70,13 @@ run_in_sandbox() {
     fi
     
     # Base bubblewrap command
+    local real_home_dir="$HOME"
+    
     local bwrap_cmd=(
         bwrap
         --proc /proc
         --tmpfs /tmp
-        --bind "${sandbox_home}" /home/agent
+        --bind "${sandbox_home}" "${real_home_dir}"
     )
     
     # Common read-only mounts
@@ -101,17 +111,19 @@ run_in_sandbox() {
     bwrap_cmd+=(--dev-bind /dev /dev)
     
     # Environment variables
+    local real_home_dir="$HOME"
+    
     bwrap_cmd+=(
         --clearenv
-        --setenv HOME /home/agent
-        --setenv PATH "/home/agent/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
+        --setenv HOME "${real_home_dir}"
+        --setenv PATH "${real_home_dir}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
         --setenv DISPLAY "${DISPLAY}"
         --setenv WAYLAND_DISPLAY "${WAYLAND_DISPLAY:-}"
         --setenv DBUS_SESSION_BUS_ADDRESS "${DBUS_SESSION_BUS_ADDRESS:-}"
         --setenv XDG_RUNTIME_DIR "${XDG_RUNTIME_DIR:-}"
         --setenv TERM "${TERM}"
         --setenv COLORTERM "${COLORTERM:-}"
-        --setenv BASH_ENV "/home/agent/.bashrc"
+        --setenv BASH_ENV "${real_home_dir}/.bashrc"
         --setenv CLAUDE_INSTANCE "${sandbox_name}"
     )
     
