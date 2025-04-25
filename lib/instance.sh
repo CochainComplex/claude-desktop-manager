@@ -224,24 +224,61 @@ start_instance() {
     local build_format
     build_format=$(echo "$instance" | jq -r '.build_format')
     
-    # Start Claude Desktop in the sandbox
+    # Debug display information before starting
+    echo "Starting instance with DISPLAY=${DISPLAY:-unset}, XAUTHORITY=${XAUTHORITY:-unset}"
+    
+    # Instead of creating a temporary script file, we'll directly execute the needed commands
+    # in the sandbox using inline commands to avoid temp file issues
+    
+    # Execute directly in the sandbox using a bash one-liner
     if [ "$build_format" = "deb" ]; then
-        run_in_sandbox "$instance_name" "$HOME/.local/bin/claude-desktop" &
+        run_in_sandbox "$instance_name" bash -c '
+            echo "Inside sandbox: DISPLAY=$DISPLAY, XAUTHORITY=$XAUTHORITY"
+            
+            # Test X11 connection
+            if command -v xdpyinfo >/dev/null 2>&1; then
+                if ! xdpyinfo >/dev/null 2>&1; then
+                    echo "WARNING: Cannot connect to X server - check X11 configuration"
+                else
+                    echo "X11 connection test successful"
+                fi
+            fi
+            
+            if [ -x "$HOME/.local/bin/claude-desktop" ]; then
+                echo "Starting Claude Desktop (deb format)..."
+                exec "$HOME/.local/bin/claude-desktop"
+            else
+                echo "Error: Claude Desktop not found at $HOME/.local/bin/claude-desktop"
+                exit 1
+            fi
+        ' &
     else
-        # Find AppImage in sandbox
-        local appimage_file
-        appimage_file=$(find "${SANDBOX_BASE}/${instance_name}/Downloads" -name "*.AppImage" | head -1)
-        if [ -z "$appimage_file" ]; then
-            echo "Error: Could not find AppImage in sandbox."
-            return 1
-        fi
-        
-        # Get just the filename, not the full path
-        appimage_file=$(basename "$appimage_file")
-        
-        # Execute in sandbox
-        run_in_sandbox "$instance_name" "$HOME/Downloads/${appimage_file}" &
+        run_in_sandbox "$instance_name" bash -c '
+            echo "Inside sandbox: DISPLAY=$DISPLAY, XAUTHORITY=$XAUTHORITY"
+            
+            # Test X11 connection
+            if command -v xdpyinfo >/dev/null 2>&1; then
+                if ! xdpyinfo >/dev/null 2>&1; then
+                    echo "WARNING: Cannot connect to X server - check X11 configuration"
+                else
+                    echo "X11 connection test successful"
+                fi
+            fi
+            
+            # Find AppImage
+            appimage_file=$(find "$HOME/Downloads" -type f -name "*.AppImage" | head -1)
+            if [ -n "$appimage_file" ] && [ -x "$appimage_file" ]; then
+                echo "Starting Claude Desktop (AppImage format)..."
+                exec "$appimage_file"
+            else
+                echo "Error: AppImage not found or not executable"
+                exit 1
+            fi
+        ' &
     fi
+    
+    # Small delay to allow process to start
+    sleep 1
     
     # Update instance status
     update_instance_status "$instance_name" "running"
@@ -283,6 +320,63 @@ stop_instance() {
     
     echo "Instance '$instance_name' stopped."
     return 0
+}
+
+# Execute a Claude Desktop command in an instance
+execute_claude_command() {
+    local instance_name="$1"
+    shift
+    local command="$@"
+    
+    # Check if instance exists
+    if ! instance_exists "$instance_name"; then
+        echo "Error: Instance '$instance_name' does not exist."
+        return 1
+    fi
+    
+    # Get instance data
+    local instance
+    instance=$(get_instance "$instance_name")
+    local build_format
+    build_format=$(echo "$instance" | jq -r '.build_format')
+    
+    echo "Executing command '$command' in instance '$instance_name'"
+    
+    # Execute directly with bash -c to avoid temp file issues
+    if [ "$build_format" = "deb" ]; then
+        run_in_sandbox "$instance_name" bash -c "
+            # Add display debugging info
+            echo \"Debug: DISPLAY=\$DISPLAY\"
+            echo \"Debug: XAUTHORITY=\$XAUTHORITY\"
+            
+            # Execute Claude Desktop command
+            if [ -x \"\$HOME/.local/bin/claude-desktop\" ]; then
+                \"\$HOME/.local/bin/claude-desktop\" $command
+            else
+                echo \"Claude Desktop executable not found at \$HOME/.local/bin/claude-desktop\"
+                exit 1
+            fi
+        "
+        local result=$?
+    else
+        run_in_sandbox "$instance_name" bash -c "
+            # Add display debugging info
+            echo \"Debug: DISPLAY=\$DISPLAY\"
+            echo \"Debug: XAUTHORITY=\$XAUTHORITY\"
+            
+            # For AppImage format
+            appimage_file=\$(find \"\$HOME/Downloads\" -name \"*.AppImage\" | head -1)
+            if [ -n \"\$appimage_file\" ] && [ -x \"\$appimage_file\" ]; then
+                \"\$appimage_file\" $command
+            else
+                echo \"Claude Desktop AppImage not found or not executable\"
+                exit 1
+            fi
+        "
+        local result=$?
+    fi
+    
+    return $result
 }
 
 # Remove an instance

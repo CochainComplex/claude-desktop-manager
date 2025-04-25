@@ -12,6 +12,7 @@ source "${SCRIPT_DIR}/lib/installer.sh"
 source "${SCRIPT_DIR}/lib/instance.sh"
 source "${SCRIPT_DIR}/lib/config.sh"
 source "${SCRIPT_DIR}/lib/desktop.sh"
+source "${SCRIPT_DIR}/lib/help.sh"
 
 # Check for basic dependencies
 if ! check_dependencies; then
@@ -100,31 +101,14 @@ cmd_mcp() {
     configure_mcp "$instance_name" "$@"
 }
 
+cmd_execute() {
+    local instance_name="$1"
+    shift
+    execute_claude_command "$instance_name" "$@"
+}
+
 cmd_help() {
-    cat <<EOF
-Claude Desktop Manager (cmgr) - Manage multiple Claude Desktop instances
-
-Usage: cmgr COMMAND [OPTIONS]
-
-Commands:
-  create <name> [options]   Create a new Claude instance
-  list                      List all instances
-  start <name>              Start a specific instance
-  stop <name>               Stop a running instance
-  remove <name>             Remove an instance
-  config <name> [options]   Configure instance settings
-  alias <name> [alias]      Create command alias for instance
-  desktop <name>            Create desktop shortcut
-  mcp <name> [options]      Configure MCP settings
-  help                      Show this help message
-
-Examples:
-  cmgr create work          Create a new instance named "work"
-  cmgr start work           Start the work instance
-  cmgr alias work           Create an alias for the work instance
-
-For more information, see the README.md file.
-EOF
+    show_help
 }
 
 # Main command dispatcher
@@ -204,6 +188,14 @@ main() {
                 exit 1
             fi
             cmd_mcp "$@"
+            ;;
+        execute)
+            if [ $# -lt 1 ]; then
+                echo "Error: Missing instance name"
+                cmd_help
+                exit 1
+            fi
+            cmd_execute "$@"
             ;;
         help|--help|-h)
             cmd_help

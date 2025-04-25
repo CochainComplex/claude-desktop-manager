@@ -46,8 +46,16 @@ EOF
     
     chmod +x "${sandbox_home}/init.sh"
     
-    # Create .bashrc with custom prompt
-    cp -a ~/.bashrc "${sandbox_home}/"
+    # Create .bashrc with custom prompt, but filter out problematic commands
+    if [ -f ~/.bashrc ]; then
+        # Copy .bashrc but filter out any pyenv or other potentially problematic lines
+        grep -v "pyenv\|nvm\|rvm" ~/.bashrc > "${sandbox_home}/.bashrc"
+    else
+        # Create minimal .bashrc if it doesn't exist
+        echo '# Generated .bashrc for Claude sandbox' > "${sandbox_home}/.bashrc"
+    fi
+    
+    # Add custom prompt to identify the Claude instance
     echo 'PS1="\[\e[48;5;208m\e[97m\]claude-'"${sandbox_name}"'\[\e[0m\] \[\e[1;32m\]\h:\w\[\e[0m\]$ "' >> "${sandbox_home}/.bashrc"
     
     # Initialize sandbox
@@ -68,6 +76,32 @@ run_in_sandbox() {
         echo "Error: Sandbox '$sandbox_name' does not exist."
         return 1
     fi
+    
+    # Handle X11 authentication for root/sudo specifically
+    local xauth_file=""
+    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+        # When running as root, we need to create a temporary Xauthority that root can use
+        # Create it in SANDBOX_BASE so it's accessible to both host and sandbox
+        mkdir -p "${SANDBOX_BASE}/tmp"
+        xauth_file="${SANDBOX_BASE}/tmp/xauth.$(date +%s).$$"
+        
+        # Copy the original user's xauth data
+        if [ -n "${XAUTHORITY:-}" ] && [ -f "${XAUTHORITY}" ]; then
+            cp "${XAUTHORITY}" "$xauth_file"
+        elif [ -f "/home/${SUDO_USER}/.Xauthority" ]; then
+            cp "/home/${SUDO_USER}/.Xauthority" "$xauth_file"
+        else
+            # Try to extract the cookie for the current display
+            su - "${SUDO_USER}" -c "xauth extract $xauth_file $DISPLAY" || true
+        fi
+        
+        # Make sure it's accessible
+        chmod 644 "$xauth_file"
+        export XAUTHORITY="$xauth_file"
+    fi
+    
+    # Debug info
+    echo "Display info: DISPLAY=${DISPLAY:-unset}, XAUTHORITY=${XAUTHORITY:-unset}"
     
     # Base bubblewrap command
     local real_home_dir="$HOME"
@@ -98,6 +132,27 @@ run_in_sandbox() {
     # User-specific mounts for GUI apps
     bwrap_cmd+=(--bind /tmp/.X11-unix /tmp/.X11-unix)
     
+    # Bind our custom temporary directory to ensure scripts can access it
+    if [ -d "${SANDBOX_BASE}/tmp" ]; then
+        mkdir -p "${SANDBOX_BASE}/tmp"
+        bwrap_cmd+=(--bind "${SANDBOX_BASE}/tmp" "${SANDBOX_BASE}/tmp")
+    fi
+    
+    # X11 authorization - critical for display access
+    if [ -n "${XAUTHORITY:-}" ] && [ -f "${XAUTHORITY}" ]; then
+        echo "Using Xauthority file: ${XAUTHORITY}"
+        bwrap_cmd+=(--bind "${XAUTHORITY}" "${XAUTHORITY}")
+        
+        # For root/sudo case, we need to ensure the sandbox sees this file
+        if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+            # Also bind to standard location within sandbox
+            bwrap_cmd+=(--bind "${XAUTHORITY}" "${real_home_dir}/.Xauthority")
+        fi
+    elif [ -f "${HOME}/.Xauthority" ]; then
+        echo "Using home Xauthority file: ${HOME}/.Xauthority"
+        bwrap_cmd+=(--bind "${HOME}/.Xauthority" "${HOME}/.Xauthority")
+    fi
+    
     # Handle user runtime directory
     if [ -d "/run/user/${UID}" ]; then
         for item in bus docker.pid docker.sock docker; do
@@ -120,14 +175,58 @@ run_in_sandbox() {
         --setenv DISPLAY "${DISPLAY:-:0}"
         --setenv WAYLAND_DISPLAY "${WAYLAND_DISPLAY:-}"
         --setenv DBUS_SESSION_BUS_ADDRESS "${DBUS_SESSION_BUS_ADDRESS:-}"
-        --setenv XDG_RUNTIME_DIR "${XDG_RUNTIME_DIR:-}"
         --setenv TERM "${TERM}"
         --setenv COLORTERM "${COLORTERM:-}"
         --setenv BASH_ENV "${real_home_dir}/.bashrc"
         --setenv CLAUDE_INSTANCE "${sandbox_name}"
     )
     
+    # Add X11 authentication environment variables if they exist
+    if [ -n "${XAUTHORITY:-}" ]; then
+        echo "Setting XAUTHORITY=${XAUTHORITY} in sandbox"
+        bwrap_cmd+=(--setenv XAUTHORITY "${XAUTHORITY}")
+    elif [ -f "${HOME}/.Xauthority" ]; then
+        echo "Setting XAUTHORITY=${HOME}/.Xauthority in sandbox"
+        bwrap_cmd+=(--setenv XAUTHORITY "${HOME}/.Xauthority")
+    fi
+    
+    # Handle XDG_RUNTIME_DIR differently for sudo
+    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+        # Get original user's ID
+        local original_uid=$(id -u "${SUDO_USER}")
+        
+        # Try to use the original user's runtime directory
+        if [ -d "/run/user/${original_uid}" ]; then
+            echo "Using original user's XDG_RUNTIME_DIR: /run/user/${original_uid}"
+            bwrap_cmd+=(--setenv XDG_RUNTIME_DIR "/run/user/${original_uid}")
+            
+            # Bind the runtime directory
+            if [ -d "/run/user/${original_uid}" ]; then
+                bwrap_cmd+=(--bind "/run/user/${original_uid}" "/run/user/${original_uid}")
+            fi
+        fi
+    elif [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "${XDG_RUNTIME_DIR}" ]; then
+        # Standard case - use the current runtime dir
+        bwrap_cmd+=(--setenv XDG_RUNTIME_DIR "${XDG_RUNTIME_DIR}")
+    fi
+    
+    # Add any other X11-related variables that might be needed
+    for xvar in $(env | grep -i '^X' | cut -d= -f1); do
+        if [ -n "${!xvar}" ]; then
+            bwrap_cmd+=(--setenv "$xvar" "${!xvar}")
+        fi
+    done
+    
     # Execute command in sandbox
     "${bwrap_cmd[@]}" "$@"
-    return $?
+    local result=$?
+    
+    # Clean up temporary Xauthority file if we created one
+    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ -n "${xauth_file:-}" ] && [ -f "${xauth_file}" ]; then
+        rm -f "${xauth_file}"
+        # Clean up any old auth files (older than 1 day)
+        find "${SANDBOX_BASE}/tmp" -name "xauth.*" -mtime +1 -delete 2>/dev/null || true
+    fi
+    
+    return $result
 }
