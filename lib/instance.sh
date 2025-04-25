@@ -246,7 +246,8 @@ start_instance() {
             
             if [ -x "$HOME/.local/bin/claude-desktop" ]; then
                 echo "Starting Claude Desktop (deb format)..."
-                exec "$HOME/.local/bin/claude-desktop"
+                # Add --disable-gpu flag to prevent hardware acceleration issues
+                exec "$HOME/.local/bin/claude-desktop" --disable-gpu
             else
                 echo "Error: Claude Desktop not found at $HOME/.local/bin/claude-desktop"
                 exit 1
@@ -269,7 +270,8 @@ start_instance() {
             appimage_file=$(find "$HOME/Downloads" -type f -name "*.AppImage" | head -1)
             if [ -n "$appimage_file" ] && [ -x "$appimage_file" ]; then
                 echo "Starting Claude Desktop (AppImage format)..."
-                exec "$appimage_file"
+                # Add --disable-gpu flag to prevent hardware acceleration issues
+                exec "$appimage_file" --disable-gpu
             else
                 echo "Error: AppImage not found or not executable"
                 exit 1

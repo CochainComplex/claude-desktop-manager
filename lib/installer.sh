@@ -238,6 +238,10 @@ install_claude_in_sandbox() {
     local sandbox_home="${SANDBOX_BASE}/${sandbox_name}"
     mkdir -p "${sandbox_home}/Downloads"
     
+    # Copy preload script to sandbox
+    mkdir -p "${sandbox_home}/.config/claude-desktop"
+    cp -f "${SCRIPT_DIR}/../templates/scripts/preload.js" "${sandbox_home}/.config/claude-desktop/"
+    
     if ! cp -f "$package_path" "${sandbox_home}/Downloads/"; then
         log_error "Failed to copy package to sandbox."
         return 1
@@ -292,7 +296,7 @@ install_claude_in_sandbox() {
 [Desktop Entry]
 Name=Claude Desktop
 Comment=Claude Desktop AI Assistant
-Exec=$HOME/.local/bin/claude-desktop %u
+Exec=$HOME/.local/bin/claude-desktop --disable-gpu --preload=$HOME/.config/claude-desktop/preload.js %u
 Icon=claude-desktop
 Type=Application
 Terminal=false
@@ -320,7 +324,7 @@ EOF"
 [Desktop Entry]
 Name=Claude Desktop
 Comment=Claude Desktop AI Assistant
-Exec=${appimage_file} %u
+Exec=${appimage_file} --disable-gpu --preload=$HOME/.config/claude-desktop/preload.js %u
 Icon=claude-desktop
 Type=Application
 Terminal=false

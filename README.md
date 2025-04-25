@@ -24,6 +24,10 @@ This project extends [emsi/claude-desktop](https://github.com/emsi/claude-deskto
 - bubblewrap (for sandboxing)
 - electron (for application runtime)
 
+## Graphics Hardware Notes
+
+By default, Claude Desktop Manager disables GPU hardware acceleration to prevent common graphics-related errors like `libva error: /usr/lib/x86_64-linux-gnu/dri/i965_drv_video.so init failed`. This ensures compatibility across different graphics hardware configurations.
+
 ## Installation
 
 ```bash
