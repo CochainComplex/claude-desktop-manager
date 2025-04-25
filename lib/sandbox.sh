@@ -104,7 +104,7 @@ run_in_sandbox() {
     bwrap_cmd+=(
         --clearenv
         --setenv HOME /home/agent
-        --setenv PATH "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/home/agent/.local/bin"
+        --setenv PATH "/home/agent/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
         --setenv DISPLAY "${DISPLAY}"
         --setenv WAYLAND_DISPLAY "${WAYLAND_DISPLAY:-}"
         --setenv DBUS_SESSION_BUS_ADDRESS "${DBUS_SESSION_BUS_ADDRESS:-}"

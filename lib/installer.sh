@@ -241,7 +241,25 @@ install_claude_in_sandbox() {
     # Install the package in the sandbox
     local install_success=false
     if [ "$build_format" = "deb" ]; then
-        if run_in_sandbox "$sandbox_name" dpkg -i "/home/agent/Downloads/$(basename "$package_path")"; then
+        # Extract the .deb package in the sandbox instead of using dpkg
+        if run_in_sandbox "$sandbox_name" bash -c "cd /home/agent && ar x /home/agent/Downloads/$(basename "$package_path") && tar xf data.tar.xz && rm data.tar.xz control.tar.xz debian-binary && mkdir -p /home/agent/.local/bin && cp -r usr/bin/claude-desktop /home/agent/.local/bin/"; then
+            # Create desktop entry file in the sandbox
+            run_in_sandbox "$sandbox_name" bash -c "mkdir -p /home/agent/.local/share/applications && cat > /home/agent/.local/share/applications/claude-desktop.desktop << EOF
+[Desktop Entry]
+Name=Claude Desktop
+Comment=Claude Desktop AI Assistant
+Exec=/home/agent/.local/bin/claude-desktop %u
+Icon=claude-desktop
+Type=Application
+Terminal=false
+Categories=Office;Utility;Network;
+MimeType=x-scheme-handler/claude;
+StartupWMClass=Claude
+EOF"
+            
+            # Also copy any application resources from the extracted package
+            run_in_sandbox "$sandbox_name" bash -c "mkdir -p /home/agent/.local/share/claude-desktop && [ -d usr/share/claude-desktop ] && cp -r usr/share/claude-desktop/* /home/agent/.local/share/claude-desktop/ || true"
+            
             install_success=true
         fi
     else

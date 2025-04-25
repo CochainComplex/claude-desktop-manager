@@ -1,0 +1,18 @@
+fix: install Claude Desktop to user directory instead of system paths
+
+The installation process was failing because the bubblewrap sandbox mounts
+system directories like /usr/bin as read-only, but the dpkg installation 
+was trying to write to these directories.
+
+Changes:
+1. Modified installer.sh to manually extract the .deb package instead of 
+   using dpkg, and install the claude-desktop binary to ~/.local/bin
+2. Updated instance.sh to use the local binary path when launching
+3. Added creation of proper desktop entry file in the sandbox
+4. Reordered the PATH environment variable to prioritize ~/.local/bin
+5. Added test script to verify installation works correctly
+
+This approach avoids the need to modify the read-only mounts in the sandbox
+while still allowing the application to be properly installed and run.
+
+Fixes the "Read-only file system" error that occurred during installation.
