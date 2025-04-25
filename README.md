@@ -1,222 +1,92 @@
-# Claude Desktop Manager (cmgr)
+# Claude Desktop Manager
 
-Claude Desktop Manager is a utility for creating and managing multiple isolated instances of Claude Desktop on Linux systems. This tool enables users to maintain different Claude Desktop environments with separate settings, conversations, and MCP configurations - all running simultaneously on the same host.
+A utility for creating and managing multiple isolated instances of Claude Desktop on Linux systems.
 
-## Summary
+## Overview
 
-- **Isolation**: Each Claude instance runs in a separate bubblewrap sandbox with its own configuration, ensuring complete separation.
-- **MCP Management**: Configure different auto-approval settings or custom MCP servers for different use cases.
-- **Resource Efficiency**: Built packages are cached to avoid rebuilding for each instance.
-- **Usability**: Desktop shortcuts and shell aliases provide quick access to each instance.
-- **Clean Design**: Per-instance installation ensures completely isolated environments with no conflicts.
+Claude Desktop Manager (`cmgr`) enables users to maintain different Claude Desktop environments with separate settings, conversations, and MCP configurations. Each instance is sandboxed using bubblewrap to ensure complete isolation.
+
+This project extends [emsi/claude-desktop](https://github.com/emsi/claude-desktop), an unofficial Linux port of Anthropic's Claude Desktop application.
 
 ## Features
 
 - Create isolated Claude Desktop instances using bubblewrap sandboxing
 - Generate and manage quick-access aliases for each instance
 - Launch, list, and remove instances with simple commands
-- Support auto-approval of MCP tools per instance with JavaScript injection
+- Support auto-approval of MCP (Machine-Computer Protocol) tools
 - Configure custom MCP servers for different instances
 - Generate desktop shortcuts for system integration
-- Cache built packages to improve efficiency
 
-## Prerequisites
+## Requirements
 
-- A Debian-based Linux distribution (Ubuntu, Pop!_OS, Mint, etc.)
+- Debian-based Linux system (Ubuntu, Pop!_OS, etc.)
+- claude-desktop (base application)
 - bubblewrap (for sandboxing)
-- jq (for JSON processing)
-- Basic build dependencies for Claude Desktop
+- electron (for application runtime)
 
 ## Installation
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/yourusername/claude-desktop-manager.git
-   cd claude-desktop-manager
-   ```
-
-2. Make the main script executable:
-   ```bash
-   chmod +x cmgr
-   ```
-
-3. Install dependencies:
-   ```bash
-   sudo apt update
-   sudo apt install -y bubblewrap jq git
-   ```
+```bash
+# Installation instructions will be provided soon
+```
 
 ## Usage
 
-### Creating a new instance
-
 ```bash
-./cmgr create work
+# Create a new Claude Desktop instance
+cmgr create my-instance
+
+# Launch an instance
+cmgr launch my-instance
+
+# List all instances
+cmgr list
+
+# Remove an instance
+cmgr remove my-instance
 ```
 
-This will:
-1. Create a new sandbox for the instance
-2. Build and cache Claude Desktop (if not already cached)
-3. Install Claude Desktop in the sandbox
-4. Register the instance in the manager
+## MCP Tool Integration
 
-Options:
-- `--format deb|appimage` - Specify package format (default: deb)
-- `--mcp-auto-approve` - Enable auto-approval for MCP tools
+Claude Desktop Manager supports custom MCP tool configurations:
 
-### Listing instances
-
-```bash
-./cmgr list
-```
-
-Shows all registered instances with their status.
-
-### Starting an instance
-
-```bash
-./cmgr start work
-```
-
-Starts the Claude Desktop instance named "work".
-
-### Stopping an instance
-
-```bash
-./cmgr stop work
-```
-
-Stops a running instance.
-
-### Removing an instance
-
-```bash
-./cmgr remove work
-```
-
-Completely removes an instance, including its sandbox and registration.
-
-### Creating an alias
-
-```bash
-./cmgr alias work
-```
-
-Creates a shell alias (`claude-work`) for quickly starting the instance.
-
-### Creating a desktop shortcut
-
-```bash
-./cmgr desktop work
-```
-
-Creates a desktop entry for launching the instance.
-
-### Configuring MCP settings
-
-The Machine-Computer Protocol (MCP) allows Claude to interact with your system. Each instance can have different MCP settings:
-
-```bash
-# Enable auto-approval for all MCP tools
-./cmgr mcp work --auto-approve
-
-# Set custom MCP server
-./cmgr mcp work --server http://localhost:8000
-```
-
-MCP configuration is stored in the instance-specific `~/.config/Claude/claude_desktop_config.json` file within each sandbox. This allows you to:
-
-- Use auto-approval in development instances for efficient workflows
-- Maintain strict security in production instances
-- Configure different sets of approved tools for different use cases
-- Test custom MCP server implementations in isolation
-
-### Configuring instance settings
-
-```bash
-# Change global shortcut
-./cmgr config work --global-shortcut "CommandOrControl+Alt+W"
-
-# Hide tray icon
-./cmgr config work --hide-tray
-```
-
-## How It Works
-
-Claude Desktop Manager uses several technologies to manage isolated instances:
-
-1. **Bubblewrap (bwrap)** for creating secure sandboxes with:
-   - Separate home directories
-   - Process isolation
-   - Controlled system access
-   - X11 forwarding for GUI
-
-2. **Instance Management**:
-   - Each instance has its own sandbox
-   - Instances are registered in a central registry
-   - Instances can be started, stopped, and configured independently
-
-3. **MCP Integration**:
-   - Each instance can have different MCP settings
-   - Auto-approval can be configured per instance
-   - Custom MCP servers can be specified
-
-## Technical Architecture
-
-```
-/
-├── cmgr                    # Main executable script
-├── lib/                    # Core libraries
-│   ├── dependencies.sh     # Dependency checking and installation
-│   ├── sandbox.sh          # Bubblewrap sandbox creation utilities
-│   ├── installer.sh        # Claude Desktop installation functions
-│   ├── instance.sh         # Instance management functions
-│   ├── config.sh           # Configuration management
-│   └── desktop.sh          # Desktop integration utilities
-├── templates/              # Configuration templates
-│   ├── desktop_entry.desktop   # Desktop shortcut template
-│   └── bash_alias.template     # Bash alias template
-└── ~/.cmgr/                # User data directory (created at runtime)
-    ├── cache/              # Claude Desktop package cache
-    └── registry.json       # Instance registry
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+- Auto-approval of trusted tools
+- Custom trusted tool lists per instance
+- Support for custom MCP server configurations
 
 ## License
 
-This project is dual-licensed under the MIT License and Apache License 2.0, maintaining compatibility with the claude-desktop project.
+Claude Desktop Manager is dual-licensed under both the MIT license and the Apache License (Version 2.0).
 
-## Acknowledgements
+This means you can choose either license, depending on which better suits your needs:
 
-- Based on [emsi/claude-desktop](https://github.com/emsi/claude-desktop)
-- Inspired by the original work from [aaddrick/claude-desktop-debian](https://github.com/aaddrick/claude-desktop-debian)
+- **MIT License**: A permissive license with very few restrictions
+- **Apache License 2.0**: A permissive license with patent grants and contribution terms
 
-## Recent Updates
+See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE) for the full license texts.
 
-### 2025-04-25: Installation Process Improvements
+### Copyright
 
-We've significantly improved the installation process to ensure compatibility with the latest version of the emsi/claude-desktop repository:
+Copyright (c) 2025 Alexander Warth - Claude Desktop Manager  
+Portions Copyright (c) 2024 aaddrick (claude-desktop-debian)  
+Portions Copyright (c) 2024 emsi (claude-desktop)  
+Portions Copyright (c) 2024 Claude Desktop Linux Maintainers  
+Portions Copyright (c) 2019 k3d3
 
-- Fixed the build and caching system to properly use the upstream `install-claude-desktop.sh` script
-- Added enhanced error detection and recovery mechanisms
-- Improved MCP auto-approval with a more robust JavaScript injection system
-- Added better package detection for various naming patterns
+### Contribution
 
-See [CHANGELOG.md](CHANGELOG.md) for more details on recent changes.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this work by you shall be dual-licensed as above, without any additional terms or conditions.
 
-## Known Issues
+## Attribution
 
-- The AppImage format is not currently supported directly by the upstream installer script. When requesting the AppImage format, the manager will fall back to using the .deb format.
-- When using MCP auto-approval, the first approval may still require manual confirmation before the auto-approval script is fully loaded.
+This project is derived from two key sources:
 
-## Troubleshooting
+1. The original [aaddrick/claude-desktop-debian](https://github.com/aaddrick/claude-desktop-debian) project, which created the first Debian/Ubuntu build scripts for Claude Desktop
 
-If you encounter issues with instance creation:
+2. The [emsi/claude-desktop](https://github.com/emsi/claude-desktop) fork, which expanded on the original project with additional features
 
-1. Check that all dependencies are properly installed
-2. Verify network connectivity for downloading the Claude Desktop installer
-3. Ensure you have sufficient disk space for the cached packages
-4. Check the logs in `~/.cmgr/logs/` for detailed error information
+Both projects are unofficial Linux ports of Anthropic's Claude Desktop application and are dual-licensed under MIT and Apache 2.0.
+
+## Disclaimer
+
+This is an unofficial utility not affiliated with Anthropic. All code focuses on managing the Claude Desktop application, not modifying it.

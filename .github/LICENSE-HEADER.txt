@@ -1,0 +1,21 @@
+/*
+ * Claude Desktop Manager
+ * Copyright (c) 2025 Alexander Warth
+ * Portions Copyright (c) 2024 aaddrick (claude-desktop-debian)
+ * Portions Copyright (c) 2024 emsi (claude-desktop)
+ * Portions Copyright (c) 2024 Claude Desktop Linux Maintainers
+ * Portions Copyright (c) 2019 k3d3
+ *
+ * This software is derived from the following projects:
+ * - https://github.com/aaddrick/claude-desktop-debian (original)
+ * - https://github.com/emsi/claude-desktop (fork)
+ *
+ * Licensed under either of
+ *  - Apache License, Version 2.0 (LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0)
+ *  - MIT license (LICENSE-MIT or http://opensource.org/licenses/MIT)
+ * at your option.
+ *
+ * Unless you explicitly state otherwise, any contribution intentionally submitted
+ * for inclusion in this work by you, as defined in the Apache-2.0 license, shall be
+ * dual licensed as above, without any additional terms or conditions.
+ */

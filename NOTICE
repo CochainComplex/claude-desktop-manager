@@ -1,0 +1,16 @@
+Claude Desktop Manager
+Copyright 2025 Alexander Warth
+
+This product includes software derived from the following projects:
+
+1. "claude-desktop-debian" project (https://github.com/aaddrick/claude-desktop-debian),
+   which is dual-licensed under the Apache License 2.0 and MIT License.
+
+2. "claude-desktop" project (https://github.com/emsi/claude-desktop), a fork of
+   claude-desktop-debian, which is also dual-licensed under the Apache License 2.0
+   and MIT License.
+
+Claude Desktop Manager is an extension of the claude-desktop project and 
+maintains the same dual licensing structure.
+
+This product is not affiliated with Anthropic or the Claude AI product.
