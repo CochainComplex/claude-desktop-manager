@@ -17,8 +17,15 @@ if (!asarPath || !fs.existsSync(asarPath)) {
 console.log(`Patching app.asar for instance: ${instanceName}`);
 console.log(`ASAR path: ${asarPath}`);
 
-// Create extraction directory
-const extractDir = `${asarPath}-extracted`;
+// Create extraction directory in a temp location in the user's home directory
+const homeDir = process.env.HOME || '/tmp';
+const tempDir = path.join(homeDir, '.cmgr', 'temp');
+fs.mkdirSync(tempDir, { recursive: true });
+
+// Create a unique extraction directory for this instance
+const extractionId = Date.now().toString(36) + Math.random().toString(36).substring(2);
+const extractDir = path.join(tempDir, `app-extract-${instanceName}-${extractionId}`);
+
 if (fs.existsSync(extractDir)) {
   console.log(`Removing existing extraction directory: ${extractDir}`);
   fs.rmSync(extractDir, { recursive: true, force: true });
@@ -26,10 +33,21 @@ if (fs.existsSync(extractDir)) {
 
 fs.mkdirSync(extractDir, { recursive: true });
 
+// Copy the asar file to our temp directory if it's in a system location
+let asarWorkingPath = asarPath;
+const needsElevatedPermissions = asarPath.startsWith('/usr/');
+
+if (needsElevatedPermissions) {
+  const tempAsarPath = path.join(tempDir, `app-${instanceName}.asar`);
+  console.log(`Copying asar from system location to: ${tempAsarPath}`);
+  fs.copyFileSync(asarPath, tempAsarPath);
+  asarWorkingPath = tempAsarPath;
+}
+
 // Extract app.asar
 try {
   console.log(`Extracting app.asar to: ${extractDir}`);
-  execSync(`npx asar extract "${asarPath}" "${extractDir}"`);
+  execSync(`npx asar extract "${asarWorkingPath}" "${extractDir}"`);
 } catch (error) {
   console.error(`Error extracting asar file: ${error.message}`);
   process.exit(1);
@@ -215,15 +233,37 @@ if (patchedFiles === 0) {
 try {
   console.log(`Repacking app.asar...`);
   
-  // Create backup of original asar if it doesn't exist
-  const backupFile = `${asarPath}.original`;
+  // Create backup of original asar in our temp directory
+  const backupFileName = path.basename(asarPath) + '.original';
+  const backupFile = path.join(tempDir, backupFileName);
   if (!fs.existsSync(backupFile)) {
-    fs.copyFileSync(asarPath, backupFile);
+    fs.copyFileSync(asarWorkingPath, backupFile);
     console.log(`Created backup of original asar: ${backupFile}`);
   }
   
-  // Pack the modified files back into app.asar
-  execSync(`npx asar pack "${extractDir}" "${asarPath}"`);
+  // Pack the modified files back into our working asar path
+  const outputAsarPath = path.join(tempDir, `patched-${instanceName}.asar`);
+  execSync(`npx asar pack "${extractDir}" "${outputAsarPath}"`); 
+  
+  if (needsElevatedPermissions) {
+    // For system locations, we need to use sudo to copy back the file
+    console.log(`Patched file created at: ${outputAsarPath}`);
+    
+    // Store the system path information for later use by apply-system-patches.sh
+    const systemPathInfoFile = path.join(tempDir, `system-path-${instanceName}.txt`);
+    fs.writeFileSync(systemPathInfoFile, asarPath);
+    
+    console.log(`System path information stored in: ${systemPathInfoFile}`);
+    console.log(`To apply this patch to the system location, you can:`);
+    console.log(`1. Run: sudo cp "${outputAsarPath}" "${asarPath}"`);
+    console.log(`2. Or use: sudo ${homeDir}/Devstuff/claude-desktop-manager/scripts/apply-system-patches.sh`);
+  } else {
+    // For user locations, we can directly copy the file back
+    fs.copyFileSync(outputAsarPath, asarPath);
+    console.log(`Successfully copied patched asar back to: ${asarPath}`);
+  }
+  
+  console.log(`You can find the backup at: ${backupFile} if needed.`);
   console.log(`Successfully repacked app.asar`);
   
   // Clean up extraction directory

@@ -659,7 +659,10 @@ PATCHSCRIPT
                 npm install -g asar
             fi
             
-            # Find app.asar files
+            # Set up temporary directory for patching
+            mkdir -p ~/.cmgr/temp
+            
+            # Find app.asar files - search in user and system directories
             APP_DIRS=(~/.local/share/claude-desktop ~/.local/lib/claude-desktop /usr/lib/claude-desktop ~/.local/bin)
             
             for dir in \"\${APP_DIRS[@]}\"; do
@@ -671,6 +674,22 @@ PATCHSCRIPT
                         # Run the patcher script with instance name and asar path
                         echo \"Patching app.asar for instance '$sandbox_name'...\"
                         node ~/.config/claude-desktop/patch-app.js \"$sandbox_name\" \"\$ASAR_FILE\"
+                        
+                        # Check if we need to apply the patch to a system location
+                        PATCHED_ASAR=\"\$(ls -t ~/.cmgr/temp/patched-$sandbox_name.asar 2>/dev/null | head -1)\"
+                        if [ -n \"\$PATCHED_ASAR\" ] && [[ \"\$ASAR_FILE\" == /usr/* ]]; then
+                            echo \"System location detected, attempting to copy patched file...\"
+                            # Try using sudo to copy the file
+                            # Create system path info file
+                            echo \"\$ASAR_FILE\" > \"~/.cmgr/temp/system-path-$sandbox_name.txt\"
+                            
+                            # Use the helper function from sandbox.sh
+                            copy_to_system_location \"\$PATCHED_ASAR\" \"\$ASAR_FILE\" || {
+                                echo \"WARNING: Failed to copy patched file to system location.\"
+                                echo \"You can apply patches later with:\"
+                                echo \"sudo ${SCRIPT_DIR}/../scripts/apply-system-patches.sh\"
+                            }
+                        fi
                         break
                     fi
                 fi
@@ -684,6 +703,15 @@ PATCHSCRIPT
                 if [ -n \"\$ASAR_FILE\" ]; then
                     echo \"Found app.asar at \$ASAR_FILE\"
                     node ~/.config/claude-desktop/patch-app.js \"$sandbox_name\" \"\$ASAR_FILE\"
+                    
+                    # Check if we need to apply the patch to a system location
+                    PATCHED_ASAR=\"\$(ls -t ~/.cmgr/temp/patched-$sandbox_name.asar 2>/dev/null | head -1)\"
+                    if [ -n \"\$PATCHED_ASAR\" ] && [[ \"\$ASAR_FILE\" == /usr/* ]]; then
+                        echo \"System location detected, attempting to copy patched file...\"
+                        # Use the helper function from sandbox.sh
+                        copy_to_system_location \"\$PATCHED_ASAR\" \"\$ASAR_FILE\" || \\
+                        echo \"WARNING: Failed to copy patched file to system location. Manual intervention required.\"
+                    fi
                 else
                     echo \"Could not find app.asar, skipping patching\"
                 fi

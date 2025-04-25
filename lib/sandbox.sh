@@ -244,3 +244,30 @@ run_in_sandbox() {
     
     return $result
 }
+
+# Copy a file to a system location with proper permissions
+copy_to_system_location() {
+    local source_file="$1"
+    local target_path="$2"
+    
+    # Check if target path is a system location
+    if [[ "$target_path" == /usr/* ]] || [[ "$target_path" == /opt/* ]]; then
+        echo "Attempting to copy to system location: $target_path"
+        
+        # Try using sudo
+        if command -v sudo >/dev/null 2>&1; then
+            sudo cp "$source_file" "$target_path" && \
+            echo "✓ Successfully copied file using sudo"
+            return $?
+        else
+            echo "ERROR: Sudo not available, cannot copy to system location"
+            echo "To manually complete the operation, run as root:"
+            echo "cp \"$source_file\" \"$target_path\""
+            return 1
+        fi
+    else
+        # Regular copy for non-system locations
+        cp "$source_file" "$target_path"
+        return $?
+    fi
+}

@@ -191,6 +191,17 @@ If you still experience this warning, you can:
    cmgr execute my-instance 'node ~/.config/claude-desktop/fix-listeners.js ~/.local/share/claude-desktop'
    ```
 
+## Application Patching
+
+Claude Desktop Manager automatically patches the Claude Desktop application during installation to enable multiple instances with separate configurations. For system-wide installations (in `/usr/lib/`), special handling is required.
+
+See the [Patching Documentation](docs/PATCHING.md) for details on:
+
+- How the patching process works
+- Handling system vs. user installations
+- Manual patch application when needed
+- Backup and recovery options
+
 ## MCP Tool Integration
 
 Claude Desktop Manager provides robust support for MCP (Machine-Computer Protocol) tools, which enable Claude to interact with your computer.
@@ -259,6 +270,21 @@ Claude Desktop supports several powerful MCP tools, including:
 These tools can be accessed within Claude conversations when approved.
 
 ## Troubleshooting
+
+### System Permissions for Patching
+
+If you encounter errors during instance creation related to patching the `app.asar` file in system directories (e.g., `/usr/lib/claude-desktop/`), follow these steps:
+
+1. Complete the instance creation process (it will continue despite patching errors)
+2. Apply the pending patch with elevated privileges:
+
+   ```bash
+   sudo /path/to/claude-desktop-manager/scripts/apply-system-patches.sh
+   ```
+   
+This script will safely apply all pending patches to system locations. If multiple instances need patching, the script will handle them all in one execution.
+
+For more details on the patching process and troubleshooting, see the [Patching Documentation](docs/PATCHING.md).
 
 ### Display Issues
 
