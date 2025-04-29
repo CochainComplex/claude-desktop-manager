@@ -125,6 +125,7 @@ create_instance() {
     # Parse options
     local build_format="deb"
     local mcp_auto_approve="false"
+    local configure_ports="true"
     
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -138,6 +139,10 @@ create_instance() {
                 ;;
             --mcp-auto-approve)
                 mcp_auto_approve="true"
+                shift
+                ;;
+            --no-ports)
+                configure_ports="false"
                 shift
                 ;;
             *)
@@ -190,6 +195,14 @@ create_instance() {
         fi
     fi
     
+    # Configure unique MCP ports if requested
+    if [ "$configure_ports" = "true" ]; then
+        if ! configure_mcp_ports "$instance_name"; then
+            echo "Warning: Failed to configure unique MCP ports for instance '$instance_name'."
+            # Continue since this is not critical
+        fi
+    fi
+    
     echo "Instance '$instance_name' created successfully!"
     return 0
 }
@@ -231,129 +244,168 @@ start_instance() {
     local sandbox_home="${SANDBOX_BASE}/${instance_name}"
     local mcp_config_file="${sandbox_home}/.config/Claude/claude_desktop_config.json"
     
-    if [ ! -f "$mcp_config_file" ]; then
-        echo "Warning: MCP configuration file not found in sandbox. Creating default config..."
-        mkdir -p "${sandbox_home}/.config/Claude"
-        cat > "$mcp_config_file" <<EOF
-{
-  "showTray": true,
-  "electronInitScript": "$HOME/.config/Claude/electron/preload.js"
-}
-EOF
+    # Ensure MCP configuration with unique port assignment
+    if [ ! -f "$mcp_config_file" ] || ! grep -q "mcpServers" "$mcp_config_file"; then
+        echo "Setting up MCP configuration with unique ports..."
+        # Load port management module if not already loaded
+        if ! command -v configure_mcp_ports &>/dev/null; then
+            source "${SCRIPT_DIR}/lib/mcp_ports.sh"
+        fi
+        configure_mcp_ports "$instance_name"
     fi
+    
+    # Get the port base for this instance
+    local base_port
+    base_port=$(get_port_base "$instance_name")
     
     # Execute directly in the sandbox using a bash one-liner
     if [ "$build_format" = "deb" ]; then
-        run_in_sandbox "$instance_name" bash -c '
-            echo "Inside sandbox: DISPLAY=$DISPLAY, XAUTHORITY=$XAUTHORITY"
-            echo "MCP configuration path: $CLAUDE_CONFIG_PATH"
+        run_in_sandbox "$instance_name" bash -c "
+            echo \"Inside sandbox: DISPLAY=\$DISPLAY, XAUTHORITY=\$XAUTHORITY\"
+            echo \"MCP configuration path: \$CLAUDE_CONFIG_PATH\"
             
             # Test X11 connection
             if command -v xdpyinfo >/dev/null 2>&1; then
                 if ! xdpyinfo >/dev/null 2>&1; then
-                    echo "WARNING: Cannot connect to X server - check X11 configuration"
+                    echo \"WARNING: Cannot connect to X server - check X11 configuration\"
                 else
-                    echo "X11 connection test successful"
+                    echo \"X11 connection test successful\"
                 fi
             fi
             
             # Set environment variables to suppress Node.js warnings
-            export NODE_OPTIONS="--no-warnings"
+            export NODE_OPTIONS=\"--no-warnings\"
             export ELECTRON_NO_WARNINGS=1
             
+            # Set MCP port environment variables
+            export MCP_BASE_PORT=\"$base_port\"
+            export FILESYSTEM_PORT=\"$(get_tool_port "$instance_name" "filesystem")\"
+            export SEQUENTIAL_THINKING_PORT=\"$(get_tool_port "$instance_name" "sequential-thinking")\"
+            export MEMORY_PORT=\"$(get_tool_port "$instance_name" "memory")\"
+            export DESKTOP_COMMANDER_PORT=\"$(get_tool_port "$instance_name" "desktop-commander")\"
+            export REPL_PORT=\"$(get_tool_port "$instance_name" "repl")\"
+            export PLAYWRIGHT_PORT=\"$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")\"
+            
+            echo \"MCP ports configured:\"
+            echo \"  Base port: \$MCP_BASE_PORT\"
+            echo \"  Filesystem: \$FILESYSTEM_PORT\"
+            echo \"  Sequential Thinking: \$SEQUENTIAL_THINKING_PORT\"
+            echo \"  Memory: \$MEMORY_PORT\"
+            echo \"  Desktop Commander: \$DESKTOP_COMMANDER_PORT\"
+            echo \"  REPL: \$REPL_PORT\"
+            echo \"  Playwright: \$PLAYWRIGHT_PORT\"
+            
             # Set Electron flags to prevent common graphics issues
-            export ELECTRON_FLAGS="--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader"
+            export ELECTRON_FLAGS=\"--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader\"
             
             # Check if preload script exists in either location
-            if [ -f "$HOME/.config/Claude/electron/preload.js" ]; then
-                ELECTRON_FLAGS="$ELECTRON_FLAGS --js-flags=\"--expose-gc\" --preload=$HOME/.config/Claude/electron/preload.js"
-                echo "Using preload script: $HOME/.config/Claude/electron/preload.js"
-            elif [ -f "$HOME/.config/claude-desktop/preload.js" ]; then
-                ELECTRON_FLAGS="$ELECTRON_FLAGS --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js"
-                echo "Using preload script: $HOME/.config/claude-desktop/preload.js"
+            if [ -f \"\$HOME/.config/Claude/electron/preload.js\" ]; then
+                ELECTRON_FLAGS=\"\$ELECTRON_FLAGS --js-flags=\\\"--expose-gc\\\" --preload=\$HOME/.config/Claude/electron/preload.js\"
+                echo \"Using preload script: \$HOME/.config/Claude/electron/preload.js\"
+            elif [ -f \"\$HOME/.config/claude-desktop/preload.js\" ]; then
+                ELECTRON_FLAGS=\"\$ELECTRON_FLAGS --js-flags=\\\"--expose-gc\\\" --preload=\$HOME/.config/claude-desktop/preload.js\"
+                echo \"Using preload script: \$HOME/.config/claude-desktop/preload.js\"
             else
-                echo "WARNING: Preload script not found"
+                echo \"WARNING: Preload script not found\"
             fi
             
             # Export LIBVA_DRIVER_NAME to avoid libva errors
             export LIBVA_DRIVER_NAME=dummy
             
             # Set the CLAUDE_INSTANCE environment variable for window title
-            export CLAUDE_INSTANCE="$CLAUDE_INSTANCE"
+            export CLAUDE_INSTANCE=\"$instance_name\"
             
             # Add MCP configuration flag if environment variable is set
-            if [ -n "$CLAUDE_CONFIG_PATH" ] && [ -f "$CLAUDE_CONFIG_PATH" ]; then
-                echo "Using MCP configuration from: $CLAUDE_CONFIG_PATH"
+            if [ -n \"\$CLAUDE_CONFIG_PATH\" ] && [ -f \"\$CLAUDE_CONFIG_PATH\" ]; then
+                echo \"Using MCP configuration from: \$CLAUDE_CONFIG_PATH\"
                 # Add config path to electron flags if supported by Claude desktop
-                if grep -q "configPath" "$HOME/.local/bin/claude-desktop" 2>/dev/null; then
-                    ELECTRON_FLAGS="$ELECTRON_FLAGS --configPath=$CLAUDE_CONFIG_PATH"
+                if grep -q \"configPath\" \"\$HOME/.local/bin/claude-desktop\" 2>/dev/null; then
+                    ELECTRON_FLAGS=\"\$ELECTRON_FLAGS --configPath=\$CLAUDE_CONFIG_PATH\"
                 fi
             fi
             
-            if [ -x "$HOME/.local/bin/claude-desktop" ]; then
-                echo "Starting Claude Desktop (deb format) with flags: $ELECTRON_FLAGS"
-                echo "Instance name: $CLAUDE_INSTANCE"
-                $HOME/.local/bin/claude-desktop $ELECTRON_FLAGS
+            if [ -x \"\$HOME/.local/bin/claude-desktop\" ]; then
+                echo \"Starting Claude Desktop (deb format) with flags: \$ELECTRON_FLAGS\"
+                echo \"Instance name: \$CLAUDE_INSTANCE\"
+                \$HOME/.local/bin/claude-desktop \$ELECTRON_FLAGS
             else
-                echo "Error: Claude Desktop not found at $HOME/.local/bin/claude-desktop"
+                echo \"Error: Claude Desktop not found at \$HOME/.local/bin/claude-desktop\"
                 exit 1
             fi
-        ' &
+        " &
     else
-        run_in_sandbox "$instance_name" bash -c '
-            echo "Inside sandbox: DISPLAY=$DISPLAY, XAUTHORITY=$XAUTHORITY"
-            echo "MCP configuration path: $CLAUDE_CONFIG_PATH"
+        run_in_sandbox "$instance_name" bash -c "
+            echo \"Inside sandbox: DISPLAY=\$DISPLAY, XAUTHORITY=\$XAUTHORITY\"
+            echo \"MCP configuration path: \$CLAUDE_CONFIG_PATH\"
             
             # Test X11 connection
             if command -v xdpyinfo >/dev/null 2>&1; then
                 if ! xdpyinfo >/dev/null 2>&1; then
-                    echo "WARNING: Cannot connect to X server - check X11 configuration"
+                    echo \"WARNING: Cannot connect to X server - check X11 configuration\"
                 else
-                    echo "X11 connection test successful"
+                    echo \"X11 connection test successful\"
                 fi
             fi
             
             # Set environment variables to suppress Node.js warnings
-            export NODE_OPTIONS="--no-warnings"
+            export NODE_OPTIONS=\"--no-warnings\"
             export ELECTRON_NO_WARNINGS=1
             
+            # Set MCP port environment variables
+            export MCP_BASE_PORT=\"$base_port\"
+            export FILESYSTEM_PORT=\"$(get_tool_port "$instance_name" "filesystem")\"
+            export SEQUENTIAL_THINKING_PORT=\"$(get_tool_port "$instance_name" "sequential-thinking")\"
+            export MEMORY_PORT=\"$(get_tool_port "$instance_name" "memory")\"
+            export DESKTOP_COMMANDER_PORT=\"$(get_tool_port "$instance_name" "desktop-commander")\"
+            export REPL_PORT=\"$(get_tool_port "$instance_name" "repl")\"
+            export PLAYWRIGHT_PORT=\"$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")\"
+            
+            echo \"MCP ports configured:\"
+            echo \"  Base port: \$MCP_BASE_PORT\"
+            echo \"  Filesystem: \$FILESYSTEM_PORT\"
+            echo \"  Sequential Thinking: \$SEQUENTIAL_THINKING_PORT\"
+            echo \"  Memory: \$MEMORY_PORT\"
+            echo \"  Desktop Commander: \$DESKTOP_COMMANDER_PORT\"
+            echo \"  REPL: \$REPL_PORT\"
+            echo \"  Playwright: \$PLAYWRIGHT_PORT\"
+            
             # Set Electron flags to prevent common graphics issues
-            export ELECTRON_FLAGS="--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader"
+            export ELECTRON_FLAGS=\"--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader\"
             
             # Check if preload script exists in either location
-            if [ -f "$HOME/.config/Claude/electron/preload.js" ]; then
-                ELECTRON_FLAGS="$ELECTRON_FLAGS --js-flags=\"--expose-gc\" --preload=$HOME/.config/Claude/electron/preload.js"
-                echo "Using preload script: $HOME/.config/Claude/electron/preload.js"
-            elif [ -f "$HOME/.config/claude-desktop/preload.js" ]; then
-                ELECTRON_FLAGS="$ELECTRON_FLAGS --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js"
-                echo "Using preload script: $HOME/.config/claude-desktop/preload.js"
+            if [ -f \"\$HOME/.config/Claude/electron/preload.js\" ]; then
+                ELECTRON_FLAGS=\"\$ELECTRON_FLAGS --js-flags=\\\"--expose-gc\\\" --preload=\$HOME/.config/Claude/electron/preload.js\"
+                echo \"Using preload script: \$HOME/.config/Claude/electron/preload.js\"
+            elif [ -f \"\$HOME/.config/claude-desktop/preload.js\" ]; then
+                ELECTRON_FLAGS=\"\$ELECTRON_FLAGS --js-flags=\\\"--expose-gc\\\" --preload=\$HOME/.config/claude-desktop/preload.js\"
+                echo \"Using preload script: \$HOME/.config/claude-desktop/preload.js\"
             else
-                echo "WARNING: Preload script not found"
+                echo \"WARNING: Preload script not found\"
             fi
             
             # Export LIBVA_DRIVER_NAME to avoid libva errors
             export LIBVA_DRIVER_NAME=dummy
             # Set the CLAUDE_INSTANCE environment variable for window title
-            export CLAUDE_INSTANCE="$CLAUDE_INSTANCE"
+            export CLAUDE_INSTANCE=\"$instance_name\"
             
             # Add MCP configuration flag if environment variable is set
-            if [ -n "$CLAUDE_CONFIG_PATH" ] && [ -f "$CLAUDE_CONFIG_PATH" ]; then
-                echo "Using MCP configuration from: $CLAUDE_CONFIG_PATH"
+            if [ -n \"\$CLAUDE_CONFIG_PATH\" ] && [ -f \"\$CLAUDE_CONFIG_PATH\" ]; then
+                echo \"Using MCP configuration from: \$CLAUDE_CONFIG_PATH\"
                 # Add config path to electron flags if supported by Claude desktop
-                ELECTRON_FLAGS="$ELECTRON_FLAGS --configPath=$CLAUDE_CONFIG_PATH"
+                ELECTRON_FLAGS=\"\$ELECTRON_FLAGS --configPath=\$CLAUDE_CONFIG_PATH\"
             fi
             
             # Find AppImage
-            appimage_file=$(find "$HOME/Downloads" -type f -name "*.AppImage" | head -1)
-            if [ -n "$appimage_file" ] && [ -x "$appimage_file" ]; then
-                echo "Starting Claude Desktop (AppImage format) with flags: $ELECTRON_FLAGS"
-                echo "Instance name: $CLAUDE_INSTANCE"
-                $appimage_file $ELECTRON_FLAGS
+            appimage_file=\$(find \"\$HOME/Downloads\" -type f -name \"*.AppImage\" | head -1)
+            if [ -n \"\$appimage_file\" ] && [ -x \"\$appimage_file\" ]; then
+                echo \"Starting Claude Desktop (AppImage format) with flags: \$ELECTRON_FLAGS\"
+                echo \"Instance name: \$CLAUDE_INSTANCE\"
+                \$appimage_file \$ELECTRON_FLAGS
             else
-                echo "Error: AppImage not found or not executable"
+                echo \"Error: AppImage not found or not executable\"
                 exit 1
             fi
-        ' &
+        " &
     fi
     
     # Small delay to allow process to start
@@ -362,7 +414,8 @@ EOF
     # Update instance status
     update_instance_status "$instance_name" "running"
     
-    echo "Instance '$instance_name' started."
+    echo "Instance '$instance_name' started with MCP base port: $base_port"
+    echo "You can now use MCP tools with this instance without port conflicts."
     return 0
 }
 
@@ -476,6 +529,17 @@ remove_instance() {
     
     if [ "$is_running" = "true" ]; then
         stop_instance "$instance_name"
+    fi
+    
+    # Release allocated port range
+    if command -v release_port_range &>/dev/null; then
+        release_port_range "$instance_name"
+        echo "Port allocation for instance '$instance_name' released."
+    else
+        # Load port management module if not already loaded
+        source "${SCRIPT_DIR}/lib/mcp_ports.sh"
+        release_port_range "$instance_name"
+        echo "Port allocation for instance '$instance_name' released."
     fi
     
     # Remove sandbox

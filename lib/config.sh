@@ -143,6 +143,8 @@ configure_mcp() {
                 echo "Options:"
                 echo "  --auto-approve              Enable auto-approval for all MCP tools"
                 echo "  --server <url>              Set custom MCP server URL"
+                echo "  --ports                     Configure unique ports for MCP tools"
+                echo "  --reset-ports               Reset port configuration"
                 echo ""
                 return 0
                 ;;
@@ -158,6 +160,14 @@ configure_mcp() {
                 configure_mcp_server "$instance_name" "${1#*=}"
                 shift
                 ;;
+            --ports)
+                configure_mcp_ports "$instance_name"
+                shift
+                ;;
+            --reset-ports)
+                reset_mcp_ports "$instance_name"
+                shift
+                ;;
             *)
                 echo "Unknown option: $1"
                 return 1
@@ -165,6 +175,74 @@ configure_mcp() {
         esac
     done
     
+    return 0
+}
+
+# Configure unique ports for MCP tools
+configure_mcp_ports() {
+    local instance_name="$1"
+    
+    echo "Configuring unique MCP ports for instance '$instance_name'..."
+    
+    # Get sandbox directory
+    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
+    local config_dir="${sandbox_home}/.config/Claude"
+    local config_file="${config_dir}/claude_desktop_config.json"
+    
+    # Ensure config directory exists
+    mkdir -p "${config_dir}"
+    
+    # Load port management module if not already loaded
+    if ! command -v get_port_base &>/dev/null; then
+        source "${SCRIPT_DIR}/lib/mcp_ports.sh"
+    fi
+    
+    # Allocate port range if not already allocated
+    local base_port
+    base_port=$(get_port_base "$instance_name")
+    
+    # Generate MCP server configuration with unique ports
+    generate_mcp_server_config "$instance_name" "$config_file"
+    
+    echo "MCP ports configured for instance '$instance_name' (base port: $base_port)"
+    echo "The following MCP tools have been configured with unique ports:"
+    echo "  - filesystem:            $(get_tool_port "$instance_name" "filesystem")"
+    echo "  - sequential-thinking:   $(get_tool_port "$instance_name" "sequential-thinking")"
+    echo "  - memory:                $(get_tool_port "$instance_name" "memory")"
+    echo "  - desktop-commander:     $(get_tool_port "$instance_name" "desktop-commander")"
+    echo "  - repl:                  $(get_tool_port "$instance_name" "repl")"
+    echo "  - playwright-mcp-server: $(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")"
+    
+    return 0
+}
+
+# Reset port configuration
+reset_mcp_ports() {
+    local instance_name="$1"
+    
+    echo "Resetting MCP port configuration for instance '$instance_name'..."
+    
+    # Load port management module if not already loaded
+    if ! command -v release_port_range &>/dev/null; then
+        source "${SCRIPT_DIR}/lib/mcp_ports.sh"
+    fi
+    
+    # Release allocated port range
+    release_port_range "$instance_name"
+    
+    # Get sandbox directory
+    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
+    local config_dir="${sandbox_home}/.config/Claude"
+    local config_file="${config_dir}/claude_desktop_config.json"
+    
+    # Check if config file exists
+    if [ -f "$config_file" ]; then
+        # Remove mcpServers configuration if present
+        jq 'del(.mcpServers)' "$config_file" > "${config_file}.tmp" && \
+        mv "${config_file}.tmp" "$config_file"
+    fi
+    
+    echo "MCP port configuration reset. The instance will use default ports."
     return 0
 }
 

@@ -11,9 +11,11 @@ This project extends [emsi/claude-desktop](https://github.com/emsi/claude-deskto
 ## Features
 
 - Create isolated Claude Desktop instances using bubblewrap sandboxing
+- Run multiple instances simultaneously with independent MCP tools
+- Automatic port management to prevent tool conflicts between instances
 - Generate and manage quick-access aliases for each instance
 - Launch, list, and remove instances with simple commands
-- Support auto-approval of MCP (Machine-Computer Protocol) tools
+- Support auto-approval of MCP (Model Context Protocol) tools
 - Generate desktop shortcuts for system integration
 
 ## Requirements
@@ -99,6 +101,9 @@ The `cmgr` tool provides a set of commands for managing Claude Desktop instances
 # Create instance with specific format and auto-approved MCP tools
 cmgr create research --format=appimage --mcp-auto-approve
 
+# Create instance without port management (not recommended)
+cmgr create legacy --no-ports
+
 # Configure global shortcut for an instance
 cmgr config work --global-shortcut="CommandOrControl+Shift+A"
 
@@ -116,6 +121,12 @@ cmgr desktop personal
 
 # Configure MCP auto-approval for all tools
 cmgr mcp research --auto-approve
+
+# Configure unique ports for an existing instance
+cmgr mcp legacy --ports
+
+# Reset port configuration if having issues
+cmgr mcp work --reset-ports
 
 # Execute a command in the Claude Desktop instance
 cmgr execute work getWindowArguments []
@@ -204,7 +215,43 @@ See the [Patching Documentation](docs/PATCHING.md) for details on:
 
 ## MCP Tool Integration
 
-Claude Desktop Manager provides robust support for MCP (Machine-Computer Protocol) tools, which enable Claude to interact with your computer.
+Claude Desktop Manager provides robust support for MCP (Model Context Protocol) tools, which enable Claude to interact with your computer.
+
+### Multiple Instance Support with Port Management
+
+One of the key features of Claude Desktop Manager is its ability to run multiple Claude instances simultaneously with fully functional MCP tools. This is achieved through an intelligent port management system that:
+
+1. **Assigns unique port ranges** to each instance (no port conflicts)
+2. **Configures MCP servers** to use their designated ports
+3. **Tracks port allocations** to prevent overlaps
+4. **Sets environment variables** to ensure proper tool operation
+
+Port allocation is automatic and requires no user intervention:
+
+```bash
+# Creating two instances (each gets its own port range)
+cmgr create work
+cmgr create personal
+
+# Run both instances simultaneously
+cmgr start work
+cmgr start personal
+
+# Now you can use all MCP tools in both instances without conflicts!
+```
+
+Port ranges are allocated as follows:
+- Base port starts at 9000
+- Each instance gets a 100-port range (instance1: 9000-9099, instance2: 9100-9199, etc.)
+- Tools are assigned specific offsets within each range:
+  - filesystem: +10
+  - sequential-thinking: +20
+  - memory: +30
+  - desktop-commander: +40
+  - repl: +50
+  - etc.
+
+For more details, see [MCP Port Management](docs/MCP_PORT_MANAGEMENT.md).
 
 ### MCP Configuration Management
 
@@ -213,6 +260,7 @@ Each Claude Desktop instance has its own isolated MCP configuration stored withi
 1. The system creates the necessary config directories in the sandbox
 2. It copies any existing MCP configuration from your host system or creates a default one
 3. The sandbox environment includes the `CLAUDE_CONFIG_PATH` environment variable that points Claude Desktop to the correct configuration file
+4. Port assignments are configured automatically to prevent conflicts
 
 All configuration files are automatically created in:
 ```
@@ -392,6 +440,32 @@ If MCP tools aren't being auto-approved:
 3. Update the auto-approval configuration:
    ```bash
    cmgr mcp my-instance --auto-approve
+   ```
+
+### MCP Connection Issues
+
+If you experience "Server disconnected" errors or other MCP connection issues:
+
+1. Make sure you're using the latest port management system:
+   ```bash
+   cmgr mcp my-instance --ports
+   ```
+
+2. Check what ports are currently in use:
+   ```bash
+   cmgr execute my-instance bash -c 'ss -tulpn | grep -E "9[0-9]{3}"'
+   ```
+
+3. If you suspect port conflicts, reset the port configuration:
+   ```bash
+   cmgr mcp my-instance --reset-ports
+   cmgr stop my-instance
+   cmgr start my-instance
+   ```
+
+4. For persistent issues, try restarting with no nodejs warnings:
+   ```bash
+   cmgr execute my-instance bash -c 'NODE_OPTIONS="--no-warnings" ELECTRON_NO_WARNINGS=1 $HOME/.local/bin/claude-desktop'
    ```
 
 ## Uninstallation

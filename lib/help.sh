@@ -28,10 +28,13 @@ Commands:
 Create Options:
   --format=<deb|appimage>  Specify installation format (default: deb)
   --mcp-auto-approve       Enable automatic approval of MCP tools
+  --no-ports               Don't configure unique MCP ports (not recommended)
 
 MCP Options:
   --auto-approve           Enable automatic approval of MCP tools
   --server <url>           Set custom MCP server URL
+  --ports                  Configure unique ports for MCP tools
+  --reset-ports            Reset port configuration
 
 Config Options:
   --global-shortcut <key>  Set global shortcut key
@@ -47,6 +50,18 @@ Examples:
   cmgr fix-warnings work                  Fix MaxListenersExceededWarning in work instance
   cmgr update-title work                  Update window title to show the instance name
   cmgr mcp work --auto-approve            Configure work instance to auto-approve MCP tools
+  cmgr mcp work --ports                   Configure unique MCP ports for work instance
+  cmgr mcp work --reset-ports             Reset MCP port configuration for work instance
+
+Multiple Instance Management:
+  By default, each Claude Desktop instance is created with unique port ranges for MCP tools
+  to avoid conflicts when running multiple instances simultaneously. This allows you to use
+  tools like filesystem, sequential-thinking, and memory in each instance independently.
+
+  Base port assignment:
+    - Default port range starts at 9000
+    - Each instance gets a 100-port range (instance1: 9000-9099, instance2: 9100-9199, etc.)
+    - Tool-specific ports are assigned within each range
 
 For more information, see the README.md file.
 EOF
