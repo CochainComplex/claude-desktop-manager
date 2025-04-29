@@ -213,51 +213,12 @@ if [ "$system_found" = false ]; then
     warning "No system-wide installation found"
 fi
 
-# Step 7: Clean up possible Claude Desktop installation in ~/.local
-step_header "Step 7: Cleaning up Claude Desktop from local installation"
+# Note: We do not remove the Claude Desktop application itself (~/.local/share/claude-desktop)
+# as Claude Desktop Manager only manages instances of Claude Desktop
+# and does not own the actual application
 
-if [ -d "$HOME/.local/share/claude-desktop" ]; then
-    echo "Found Claude Desktop installation at $HOME/.local/share/claude-desktop"
-    echo "Do you want to remove the Claude Desktop application? (yes/no)"
-    read -r remove_claude
-    
-    if [ "$remove_claude" = "yes" ]; then
-        echo "Removing Claude Desktop from $HOME/.local/share/claude-desktop"
-        rm -rf "$HOME/.local/share/claude-desktop"
-        success "Removed Claude Desktop local installation"
-        
-        # Also remove bin symlink if it exists
-        if [ -f "$HOME/.local/bin/claude-desktop" ] || [ -L "$HOME/.local/bin/claude-desktop" ]; then
-            echo "Removing Claude Desktop binary symlink"
-            rm -f "$HOME/.local/bin/claude-desktop"
-            success "Removed Claude Desktop symlink"
-        fi
-    else
-        warning "Skipping Claude Desktop removal"
-    fi
-else
-    warning "No Claude Desktop local installation found"
-fi
-
-# Step 8: Clean up global Claude configuration
-step_header "Step 8: Cleaning up global Claude configuration"
-
-if [ -d "$HOME/.config/Claude" ]; then
-    echo "Found Claude configuration at $HOME/.config/Claude"
-    echo "Do you want to remove Claude configuration? (yes/no)"
-    echo -e "${YELLOW}Warning: This might affect other Claude applications if you have any.${NC}"
-    read -r remove_config
-    
-    if [ "$remove_config" = "yes" ]; then
-        echo "Removing Claude configuration from $HOME/.config/Claude"
-        rm -rf "$HOME/.config/Claude"
-        success "Removed Claude configuration"
-    else
-        warning "Skipping Claude configuration removal"
-    fi
-else
-    warning "No Claude configuration found"
-fi
+# Note: We deliberately preserve the global Claude configuration at ~/.config/Claude/
+# as it might be used by other Claude applications
 
 # Final message
 echo -e "\n${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
