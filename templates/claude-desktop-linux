@@ -1,0 +1,26 @@
+#!/bin/bash
+# claude-desktop - Simple launcher script for Claude Desktop
+
+# Configuration values
+ELECTRON=/usr/bin/electron
+ASAR_PATH="$HOME/.local/share/claude-desktop/app.asar"
+DEFAULT_FLAGS="--no-sandbox --disable-dev-shm-usage --js-flags=\"--expose-gc\""
+
+# Check if we have the app.asar file
+if [ ! -f "$ASAR_PATH" ]; then
+    echo "Claude Desktop app.asar not found at $ASAR_PATH"
+    echo "Attempting to download app.asar from repository..."
+    
+    mkdir -p "$(dirname "$ASAR_PATH")"
+    
+    # Try to download the app.asar file
+    if ! wget -O "$ASAR_PATH" "https://github.com/emsi/claude-desktop/releases/download/v0.9.2/app.asar"; then
+        echo "Failed to download app.asar"
+        exit 1
+    fi
+    
+    echo "Downloaded app.asar successfully"
+fi
+
+# Launch electron with the app.asar
+exec $ELECTRON $DEFAULT_FLAGS "$ASAR_PATH" "$@"

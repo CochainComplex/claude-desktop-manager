@@ -1,7 +1,6 @@
-// Enhanced preload.js - Fixes for common issues in Claude Desktop
-// This script runs in the Electron process context
+// Claude Desktop Manager - Enhanced preload script
+// This script fixes common issues and enhances Claude Desktop with instance-specific behavior
 
-// Log that preload script is running
 console.log('CMGR: Enhanced preload script initializing');
 
 // Fix for MaxListenersExceededWarning

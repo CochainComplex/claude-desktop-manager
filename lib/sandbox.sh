@@ -46,6 +46,9 @@ mkdir -p ~/.config/claude-desktop
 mkdir -p ~/.local/share/applications
 mkdir -p ~/.local/bin
 
+# No automatic package installation in init script
+# It's safer to pre-install required tools if needed
+
 # Confirm initialization is complete
 touch ~/.cmgr_initialized
 echo "Sandbox initialization complete!"
@@ -214,9 +217,33 @@ run_in_sandbox() {
         fi
     done
     
-    # CRITICAL: Block access to real user's home directory
+    # CRITICAL: Block access to real user's home directory - Use multiple approaches to ensure blocking
+    # First, mount tmpfs over the real home
     bwrap_cmd+=(--tmpfs "${HOME}")
-    echo "Blocking access to real user home: ${HOME}"
+    # Also try to block direct path to user home
+    if [ "${HOME}" != "/home/awarth" ]; then
+        bwrap_cmd+=(--tmpfs "/home/awarth")
+    fi
+    # Make sure all known paths to the real home are blocked
+    for username in awarth root; do
+        if [ -d "/home/$username" ] && [ "/home/$username" != "${sandbox_user_home}" ]; then
+            bwrap_cmd+=(--tmpfs "/home/$username")
+            echo "Blocking access to $username home: /home/$username"
+        fi
+    done
+    echo "Blocking access to real user home directories"
+    
+    # Try to determine the correct display
+    local display_to_use="${DISPLAY:-:0}"
+    # If running with sudo, try to get DISPLAY from the real user
+    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+        local real_user_display
+        real_user_display=$(su - "${SUDO_USER}" -c 'echo $DISPLAY')
+        if [ -n "$real_user_display" ]; then
+            display_to_use="$real_user_display"
+        fi
+    fi
+    echo "Using DISPLAY=$display_to_use for sandbox"
     
     # Environment variables
     bwrap_cmd+=(
@@ -225,7 +252,7 @@ run_in_sandbox() {
         --setenv USER "${sandbox_username}"
         --setenv LOGNAME "${sandbox_username}"
         --setenv PATH "${sandbox_user_home}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
-        --setenv DISPLAY "${DISPLAY:-:0}"
+        --setenv DISPLAY "$display_to_use"
         --setenv WAYLAND_DISPLAY "${WAYLAND_DISPLAY:-}"
         --setenv DBUS_SESSION_BUS_ADDRESS "${DBUS_SESSION_BUS_ADDRESS:-}"
         --setenv TERM "${TERM}"

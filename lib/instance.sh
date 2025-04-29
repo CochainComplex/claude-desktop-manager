@@ -338,10 +338,25 @@ start_instance() {
                 ELECTRON_FLAGS=\"\$ELECTRON_FLAGS --configPath=\$CLAUDE_CONFIG_PATH\"
             fi
             
-            # Check if we can access the real user's home directory (should fail)
-            if [ -d \"${HOME}\" ]; then
-                echo \"WARNING: Still have access to real user's home directory: ${HOME}\"
-                ls -la \"${HOME}/.config/Claude\" 2>/dev/null && echo \"Can access real user's Claude config!\"
+            # These paths should not be accessible in the sandbox
+            if [ -d \"${HOME}\" ] || [ -d \"/home/awarth\" ]; then
+                # Add debug information if we can still access real home
+                echo \"WARNING: Still have access to real user's home directory!\"
+                echo \"Sandbox is not fully isolated.\"
+                if [ -d \"${HOME}/.config/Claude\" ]; then
+                    echo \"CRITICAL: Can access real Claude config at: ${HOME}/.config/Claude\"
+                fi
+                
+                # Try to fix access by mounting a temporary filesystem over the real home
+                if [ -d \"/home/awarth\" ]; then
+                    echo \"Attempting to block access to /home/awarth with tmpfs...\"
+                    mkdir -p /tmp/empty
+                    if ! mount -t tmpfs none \"/home/awarth\" 2>/dev/null; then
+                        echo \"Mount failed, no permission. Sandboxing may be incomplete.\"
+                    else
+                        echo \"Successfully blocked access to real home with tmpfs.\"
+                    fi
+                fi
             else
                 echo \"✓ Cannot access real user's home directory (expected behavior)\"
             fi

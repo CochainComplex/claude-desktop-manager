@@ -143,6 +143,171 @@ EOF
     return 0
 }
 
+# Create a simple installation script for use inside the sandbox
+create_installation_script() {
+    local sandbox_home="$1"
+    local instance_name="$2"
+    local package_filename="$3"
+    
+    # Installation script path in the sandbox
+    local install_script="${sandbox_home}/install-claude.sh"
+    
+    # Create the installation script
+    cat > "${install_script}" << EOF
+#!/bin/bash
+# Claude Desktop installation script for sandboxed environment
+set -e
+
+# Display some debug info
+echo "==== Installation Debug Info ===="
+echo "User: \$(whoami)"
+echo "Home: \$HOME"
+echo "Working directory: \$(pwd)"
+echo "=============================="
+
+# Check if the package exists
+if [ ! -f "\$HOME/Downloads/${package_filename}" ]; then
+    echo "ERROR: Package file not found at \$HOME/Downloads/${package_filename}"
+    ls -la "\$HOME/Downloads"
+    exit 1
+fi
+
+# Create temp directory for extraction
+echo "Creating temporary extraction directory..."
+mkdir -p "\$HOME/temp-extract"
+cd "\$HOME/temp-extract"
+
+# Extract the .deb package
+echo "Extracting .deb package..."
+if command -v dpkg-deb &> /dev/null; then
+    echo "Using dpkg-deb for extraction"
+    dpkg-deb -x "\$HOME/Downloads/${package_filename}" .
+elif command -v ar &> /dev/null; then
+    echo "Using ar and tar for extraction"
+    ar x "\$HOME/Downloads/${package_filename}"
+    
+    # Find and extract the data archive
+    if [ -f "data.tar.xz" ]; then
+        echo "Extracting data.tar.xz"
+        tar -xf data.tar.xz
+    elif [ -f "data.tar.gz" ]; then
+        echo "Extracting data.tar.gz"
+        tar -xf data.tar.gz
+    elif [ -f "data.tar.zst" ] && command -v unzstd &> /dev/null; then
+        echo "Extracting data.tar.zst"
+        tar --use-compress-program=unzstd -xf data.tar.zst
+    elif [ -f "data.tar" ]; then
+        echo "Extracting data.tar"
+        tar -xf data.tar
+    else
+        echo "ERROR: Couldn't find a suitable data archive to extract"
+        ls -la
+        exit 1
+    fi
+else
+    echo "ERROR: Neither dpkg-deb nor ar found. Cannot extract package."
+    exit 1
+fi
+
+# Check if extraction was successful
+echo "Checking extraction results..."
+if [ ! -d "usr" ]; then
+    echo "ERROR: Extraction failed - usr directory not found"
+    ls -la
+    exit 1
+fi
+
+# Show extracted content
+echo "Extracted package contents:"
+find . -name "claude-desktop" -o -name "app.asar"
+
+# Create necessary directories
+echo "Setting up application directories..."
+mkdir -p "\$HOME/.local/bin"
+mkdir -p "\$HOME/.local/share/applications"
+mkdir -p "\$HOME/.local/share/claude-desktop"
+
+# Install executable
+if [ -f "usr/bin/claude-desktop" ]; then
+    echo "Installing claude-desktop executable..."
+    cp "usr/bin/claude-desktop" "\$HOME/.local/bin/"
+    chmod +x "\$HOME/.local/bin/claude-desktop"
+else
+    echo "Creating fallback executable..."
+    cat > "\$HOME/.local/bin/claude-desktop" << 'EXECEOF'
+#!/bin/bash
+# Fallback launcher for Claude Desktop
+exec electron --no-sandbox --disable-dev-shm-usage --js-flags="--expose-gc" "\$HOME/.local/share/claude-desktop/app.asar" "\$@"
+EXECEOF
+    chmod +x "\$HOME/.local/bin/claude-desktop"
+fi
+
+# Copy app resources
+if [ -d "usr/lib/claude-desktop" ]; then
+    echo "Copying application resources..."
+    cp -r usr/lib/claude-desktop/* "\$HOME/.local/share/claude-desktop/"
+fi
+
+# Copy desktop entries and icons if available
+if [ -d "usr/share/applications" ]; then
+    cp -r usr/share/applications/* "\$HOME/.local/share/applications/"
+fi
+
+if [ -d "usr/share/claude-desktop" ]; then
+    cp -r usr/share/claude-desktop/* "\$HOME/.local/share/claude-desktop/"
+fi
+
+if [ -d "usr/share/icons" ]; then
+    mkdir -p "\$HOME/.local/share/icons"
+    cp -r usr/share/icons/* "\$HOME/.local/share/icons/"
+fi
+
+# Create desktop entry
+echo "Creating desktop entry for instance '${instance_name}'..."
+cat > "\$HOME/.local/share/applications/claude-desktop-${instance_name}.desktop" << EOF2
+[Desktop Entry]
+Name=Claude Desktop (${instance_name})
+Comment=Claude Desktop AI Assistant (${instance_name} instance)
+Exec=env CLAUDE_INSTANCE=${instance_name} LIBVA_DRIVER_NAME=dummy "\$HOME/.local/bin/claude-desktop" --disable-gpu --no-sandbox --disable-dev-shm-usage --js-flags="--expose-gc" --preload="\$HOME/.config/claude-desktop/preload.js" %u
+Icon=claude-desktop
+Type=Application
+Terminal=false
+Categories=Office;Utility;Network;
+MimeType=x-scheme-handler/claude;
+StartupWMClass=Claude-${instance_name}
+EOF2
+
+# Cleanup
+echo "Cleaning up..."
+cd "\$HOME"
+rm -rf "\$HOME/temp-extract"
+
+# Verify installation
+if [ -x "\$HOME/.local/bin/claude-desktop" ]; then
+    echo "✅ Claude Desktop installation complete!"
+    echo "Executable: \$HOME/.local/bin/claude-desktop"
+    
+    if [ -f "\$HOME/.local/share/claude-desktop/app.asar" ]; then
+        echo "✅ App resources installed: \$HOME/.local/share/claude-desktop/app.asar"
+    else
+        echo "⚠️ Warning: app.asar not found"
+    fi
+    
+    echo "Desktop entry created: \$HOME/.local/share/applications/claude-desktop-${instance_name}.desktop"
+    
+    exit 0
+else
+    echo "❌ Installation failed: Executable not found at \$HOME/.local/bin/claude-desktop"
+    exit 1
+fi
+EOF
+    
+    # Make the installation script executable
+    chmod +x "${install_script}"
+    
+    return 0
+}
+
 # Install Claude Desktop in a sandbox
 install_claude_in_sandbox() {
     local sandbox_name="$1"
@@ -234,13 +399,48 @@ install_claude_in_sandbox() {
     # Install in sandbox
     log_info "Installing Claude Desktop in sandbox '${sandbox_name}'..."
     
+    # Debug info about package
+    ls -l "$package_path"
+    echo "Copying package from $package_path to ${SANDBOX_BASE}/${sandbox_name}/Downloads/"
+    
     # Copy package to sandbox
     local sandbox_home="${SANDBOX_BASE}/${sandbox_name}"
     mkdir -p "${sandbox_home}/Downloads"
     
+    # Ensure the package file is copied correctly
+    if ! cp -f "$package_path" "${sandbox_home}/Downloads/"; then
+        log_error "Failed to copy package to sandbox Downloads directory."
+        return 1
+    fi
+    
+    # Make sure the file has proper permissions
+    chmod 644 "${sandbox_home}/Downloads/$(basename "$package_path")"
+    
+    # Verify the file was copied correctly
+    if [ ! -f "${sandbox_home}/Downloads/$(basename "$package_path")" ]; then
+        log_error "Package file not found in sandbox after copying."
+        return 1
+    fi
+    
+    # Get the package filename
+    local package_filename=$(basename "$package_path")
+    
     # Copy scripts to sandbox
     mkdir -p "${sandbox_home}/.config/claude-desktop"
     mkdir -p "${sandbox_home}/.config/Claude/electron"
+    
+    # Create installation script
+    if ! create_installation_script "$sandbox_home" "$sandbox_name" "$package_filename"; then
+        log_error "Failed to create installation script in sandbox."
+        return 1
+    fi
+    
+    # Copy our fallback executable template to the sandbox
+    if [ -f "${SCRIPT_DIR}/../templates/claude-desktop-linux" ]; then
+        cp "${SCRIPT_DIR}/../templates/claude-desktop-linux" "${sandbox_home}/.config/claude-desktop/"
+        chmod +x "${sandbox_home}/.config/claude-desktop/claude-desktop-linux"
+        echo "Copied fallback executable template to sandbox"
+    fi
     
     # Use absolute path for template files
     local template_dir="${SCRIPT_DIR}/../templates"
@@ -281,364 +481,19 @@ install_claude_in_sandbox() {
         log_warn "Could not find patch-app.js in ${scripts_dir}"
     fi
     
-    if ! cp -f "$package_path" "${sandbox_home}/Downloads/"; then
-        log_error "Failed to copy package to sandbox."
+    # Run the installation script in the sandbox
+    log_info "Running installation script in sandbox..."
+    if ! run_in_sandbox "$sandbox_name" "./install-claude.sh"; then
+        log_error "Installation script failed."
         return 1
     fi
     
-    # Install the package in the sandbox
-    local install_success=false
-    if [ "$build_format" = "deb" ]; then
-        # Extract the .deb package in the sandbox instead of using dpkg
-        if run_in_sandbox "$sandbox_name" bash -c "cd $HOME && \
-            ar x $HOME/Downloads/$(basename "$package_path") && \
-            # Support multiple compression formats (xz, gz, zst, uncompressed)
-            if [ -f data.tar.xz ]; then 
-                tar xf data.tar.xz
-            elif [ -f data.tar.gz ]; then 
-                tar xf data.tar.gz
-            elif [ -f data.tar.zst ]; then 
-                tar --use-compress-program=unzstd -xf data.tar.zst
-            elif [ -f data.tar ]; then 
-                tar xf data.tar
-            else
-                # If no recognized format, try to find any data archive
-                for data_file in \$(find . -name 'data.tar*'); do
-                    case \$data_file in
-                        *.xz)  tar xf \$data_file ;;
-                        *.gz)  tar xf \$data_file ;;
-                        *.zst) tar --use-compress-program=unzstd -xf \$data_file ;;
-                        *)     tar xf \$data_file ;;
-                    esac
-                    break
-                done
-            fi && \
-            # Clean up archive files
-            rm -f data.tar* control.tar* debian-binary && \
-            mkdir -p $HOME/.local/bin && \
-            # Copy the executable
-            if [ -f usr/bin/claude-desktop ]; then
-                cp -r usr/bin/claude-desktop $HOME/.local/bin/
-            else
-                # If not in the standard location, try to find it
-                executable=\$(find . -type f -name 'claude-desktop' | head -1)
-                if [ -n \"\$executable\" ]; then
-                    mkdir -p \$(dirname \"$HOME/.local/bin/claude-desktop\")
-                    cp \$executable $HOME/.local/bin/
-                else
-                    echo 'Error: Claude Desktop executable not found'
-                    exit 1
-                fi
-            fi"; then
-            # Create desktop entry file in the sandbox
-            run_in_sandbox "$sandbox_name" bash -c "mkdir -p $HOME/.local/share/applications && cat > $HOME/.local/share/applications/claude-desktop.desktop << EOF
-[Desktop Entry]
-Name=Claude Desktop ($sandbox_name)
-Comment=Claude Desktop AI Assistant ($sandbox_name instance)
-Exec=env CLAUDE_INSTANCE=$sandbox_name LIBVA_DRIVER_NAME=dummy $HOME/.local/bin/claude-desktop --disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js %u
-Icon=claude-desktop
-Type=Application
-Terminal=false
-Categories=Office;Utility;Network;
-MimeType=x-scheme-handler/claude;
-StartupWMClass=Claude-$sandbox_name
-EOF"
-            
-            # Also copy any application resources from the extracted package
-            run_in_sandbox "$sandbox_name" bash -c "mkdir -p $HOME/.local/share/claude-desktop && [ -d usr/share/claude-desktop ] && cp -r usr/share/claude-desktop/* $HOME/.local/share/claude-desktop/ || true"
-            
-            install_success=true
-        fi
-    else
-        local appimage_file="$HOME/Downloads/$(basename "$package_path")"
-        
-        if run_in_sandbox "$sandbox_name" chmod +x "$appimage_file"; then
-            
-            # Create desktop entry for AppImage
-            local desktop_dir="$HOME/.local/share/applications"
-            run_in_sandbox "$sandbox_name" mkdir -p "$desktop_dir"
-            
-            # Run in sandbox to create desktop entry
-            if run_in_sandbox "$sandbox_name" bash -c "cat > ${desktop_dir}/claude-desktop.desktop << EOF
-[Desktop Entry]
-Name=Claude Desktop ($sandbox_name)
-Comment=Claude Desktop AI Assistant ($sandbox_name instance)
-Exec=env CLAUDE_INSTANCE=$sandbox_name LIBVA_DRIVER_NAME=dummy ${appimage_file} --disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader --js-flags=\"--expose-gc\" --preload=$HOME/.config/claude-desktop/preload.js %u
-Icon=claude-desktop
-Type=Application
-Terminal=false
-Categories=Office;Utility;Network;
-MimeType=x-scheme-handler/claude;
-StartupWMClass=Claude-$sandbox_name
-EOF"; then
-                install_success=true
-            fi
-        fi
-    fi
-    
-    if [ "$install_success" = "true" ]; then
+    # Verify installation by checking for executable
+    if run_in_sandbox "$sandbox_name" bash -c "[ -x \$HOME/.local/bin/claude-desktop ]"; then
         log_info "Claude Desktop installed successfully in sandbox '${sandbox_name}'!"
         
         # Apply instance customization and MaxListenersExceededWarning fix
         log_info "Applying instance customization and MaxListenersExceededWarning fix..."
-        
-        # Ensure patch-app.js is in the sandbox
-        sandbox_script="${sandbox_home}/.config/claude-desktop/patch-app.js"
-        if [ ! -f "$sandbox_script" ]; then
-            mkdir -p "$(dirname "$sandbox_script")"
-            
-            # Use absolute path for script
-            local patcher_script="/home/awarth/Devstuff/claude-desktop-manager/scripts/patch-app.js"
-            
-            # Check if file exists before copying
-            if [ -f "$patcher_script" ]; then
-                cp -f "$patcher_script" "$sandbox_script" || \
-                log_warn "Failed to copy patch-app.js to sandbox"
-            else
-                # Create the script directly in the sandbox (inline)
-                cat > "$sandbox_script" << 'PATCHSCRIPT'
-// patch-app.js - Applies patches to Claude Desktop app.asar during installation
-// Used by Claude Desktop Manager to customize instance name and fix warnings
-
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-
-// Get instance name and asar path from arguments
-const instanceName = process.argv[2] || 'default';
-const asarPath = process.argv[3];
-
-if (!asarPath || !fs.existsSync(asarPath)) {
-  console.error(`Error: app.asar not found at ${asarPath}`);
-  process.exit(1);
-}
-
-console.log(`Patching app.asar for instance: ${instanceName}`);
-console.log(`ASAR path: ${asarPath}`);
-
-// Create extraction directory
-const extractDir = `${asarPath}-extracted`;
-if (fs.existsSync(extractDir)) {
-  console.log(`Removing existing extraction directory: ${extractDir}`);
-  fs.rmSync(extractDir, { recursive: true, force: true });
-}
-
-fs.mkdirSync(extractDir, { recursive: true });
-
-// Extract app.asar
-try {
-  console.log(`Extracting app.asar to: ${extractDir}`);
-  execSync(`npx asar extract "${asarPath}" "${extractDir}"`);
-} catch (error) {
-  console.error(`Error extracting asar file: ${error.message}`);
-  process.exit(1);
-}
-
-// Find main process files
-const findMainProcessFiles = (dir) => {
-  let results = [];
-  
-  try {
-    const files = fs.readdirSync(dir);
-    
-    for (const file of files) {
-      const filePath = path.join(dir, file);
-      const stat = fs.lstatSync(filePath);
-      
-      if (stat.isDirectory()) {
-        results = results.concat(findMainProcessFiles(filePath));
-      } else if (
-        file === 'main.js' || 
-        file === 'electron.js' || 
-        file === 'background.js' ||
-        file === 'app.js'
-      ) {
-        console.log(`Found potential main process file: ${filePath}`);
-        results.push(filePath);
-      }
-    }
-  } catch (error) {
-    console.error(`Error searching directory ${dir}:`, error);
-  }
-  
-  return results;
-};
-
-const mainProcessFiles = findMainProcessFiles(extractDir);
-
-if (mainProcessFiles.length === 0) {
-  console.log(`No main process files found in ${extractDir}`);
-  process.exit(1);
-}
-
-// Update package.json if it exists
-try {
-  const packageJsonPath = path.join(extractDir, 'package.json');
-  if (fs.existsSync(packageJsonPath)) {
-    console.log(`Updating package.json...`);
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    
-    // Update app name with instance name
-    if (packageJson.name) {
-      packageJson.name = `claude-desktop-${instanceName}`;
-    }
-    
-    // Update product name with instance name
-    if (packageJson.productName) {
-      packageJson.productName = `Claude (${instanceName})`;
-    }
-    
-    // Write back updated package.json
-    fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
-    console.log(`Updated package.json with instance name: ${instanceName}`);
-  }
-} catch (error) {
-  console.error(`Error updating package.json: ${error.message}`);
-  // Continue even if package.json update fails
-}
-
-// Patch main process files
-let patchedFiles = 0;
-for (const filePath of mainProcessFiles) {
-  try {
-    console.log(`Patching file: ${filePath}`);
-    
-    // Backup the original file
-    fs.copyFileSync(filePath, `${filePath}.bak`);
-    
-    // Read file content
-    let content = fs.readFileSync(filePath, 'utf8');
-    
-    // Check if file already patched
-    if (content.includes('// CMGR: Instance name customization') || 
-        content.includes('// CMGR: MaxListenersExceededWarning fix')) {
-      console.log(`File ${filePath} already patched. Skipping.`);
-      continue;
-    }
-    
-    // Create patch - simple and focused on the essential functionality
-    const patch = `
-// CMGR: MaxListenersExceededWarning fix
-// CMGR: Instance name customization for ${instanceName}
-
-// Fix EventEmitter memory leak warnings
-const events = require('events');
-events.EventEmitter.defaultMaxListeners = 30;
-
-// Patch require to customize BrowserWindow titles
-const originalModule = require('module');
-const originalRequire = originalModule.prototype.require;
-
-originalModule.prototype.require = function(path) {
-  const result = originalRequire.apply(this, arguments);
-  
-  if (path === 'electron') {
-    const electron = result;
-    
-    // Patch app for WebContents
-    if (electron.app) {
-      // Increase listeners for app
-      if (electron.app.setMaxListeners) {
-        electron.app.setMaxListeners(30);
-      }
-      
-      // Patch WebContents when created
-      electron.app.on('web-contents-created', (event, contents) => {
-        if (contents.setMaxListeners) {
-          contents.setMaxListeners(30);
-        }
-      });
-    }
-    
-    // Customize BrowserWindow for instance name
-    const originalBrowserWindow = electron.BrowserWindow;
-    class CustomBrowserWindow extends originalBrowserWindow {
-      constructor(options = {}) {
-        // Add instance name to title
-        if (options.title) {
-          options.title = \`\${options.title} (${instanceName})\`;
-        } else {
-          options.title = \`Claude (${instanceName})\`;
-        }
-        
-        // Call original constructor with modified options
-        super(options);
-        
-        // Override setTitle to always include instance name
-        const originalSetTitle = this.setTitle;
-        this.setTitle = (title) => {
-          if (!title.includes('(${instanceName})')) {
-            return originalSetTitle.call(this, \`\${title} (${instanceName})\`);
-          }
-          return originalSetTitle.call(this, title);
-        };
-        
-        // Increase max listeners
-        if (this.setMaxListeners) {
-          this.setMaxListeners(30);
-        }
-      }
-    }
-    
-    // Replace BrowserWindow with our custom version
-    electron.BrowserWindow = CustomBrowserWindow;
-    
-    return electron;
-  }
-  
-  return result;
-};
-
-`;
-    
-    // Add the patch at the beginning of the file
-    content = patch + content;
-    
-    // Write the modified content back to the file
-    fs.writeFileSync(filePath, content);
-    console.log(`Successfully patched ${filePath}`);
-    patchedFiles++;
-    
-  } catch (error) {
-    console.error(`Error patching file ${filePath}: ${error.message}`);
-    // Continue with other files even if one fails
-  }
-}
-
-if (patchedFiles === 0) {
-  console.error('No files were patched. The installation customization failed.');
-  process.exit(1);
-}
-
-// Repack the asar file
-try {
-  console.log(`Repacking app.asar...`);
-  
-  // Create backup of original asar if it doesn't exist
-  const backupFile = `${asarPath}.original`;
-  if (!fs.existsSync(backupFile)) {
-    fs.copyFileSync(asarPath, backupFile);
-    console.log(`Created backup of original asar: ${backupFile}`);
-  }
-  
-  // Pack the modified files back into app.asar
-  execSync(`npx asar pack "${extractDir}" "${asarPath}"`);
-  console.log(`Successfully repacked app.asar`);
-  
-  // Clean up extraction directory
-  fs.rmSync(extractDir, { recursive: true, force: true });
-  console.log(`Removed extraction directory`);
-  
-  console.log(`Patching completed successfully!`);
-} catch (error) {
-  console.error(`Error repacking asar file: ${error.message}`);
-  process.exit(1);
-}
-PATCHSCRIPT
-                chmod +x "$sandbox_script"
-                log_info "Created patch-app.js directly in sandbox"
-            fi
-        fi
         
         # Run the patcher script in the sandbox
         run_in_sandbox "$sandbox_name" bash -c "
@@ -659,9 +514,6 @@ PATCHSCRIPT
                 npm install -g asar
             fi
             
-            # Set up temporary directory for patching
-            mkdir -p ~/.cmgr/temp
-            
             # Find app.asar files - search in user and system directories
             APP_DIRS=(~/.local/share/claude-desktop ~/.local/lib/claude-desktop /usr/lib/claude-desktop ~/.local/bin)
             
@@ -673,64 +525,18 @@ PATCHSCRIPT
                         
                         # Run the patcher script with instance name and asar path
                         echo \"Patching app.asar for instance '$sandbox_name'...\"
-                        node ~/.config/claude-desktop/patch-app.js \"$sandbox_name\" \"\$ASAR_FILE\"
-                        
-                        # Check if we need to apply the patch to a system location
-                        PATCHED_ASAR=\"\$(ls -t ~/.cmgr/temp/patched-$sandbox_name.asar 2>/dev/null | head -1)\"
-                        if [ -n \"\$PATCHED_ASAR\" ] && [[ \"\$ASAR_FILE\" == /usr/* ]]; then
-                            echo \"System location detected, attempting to copy patched file...\"
-                            # Try using sudo to copy the file
-                            # Create system path info file
-                            mkdir -p \"$HOME/.cmgr/temp\"
-                            echo \"\$ASAR_FILE\" > \"$HOME/.cmgr/temp/system-path-$sandbox_name.txt\"
-                            
-                            # Use the helper function from sandbox.sh
-                            copy_to_system_location \"\$PATCHED_ASAR\" \"\$ASAR_FILE\" || {
-                                echo \"WARNING: Failed to copy patched file to system location.\"
-                                echo \"You can apply patches later with:\"
-                                echo \"sudo \$(which cmgr) apply-patches\"
-                            }
-                        fi
+                        node ~/.config/claude-desktop/patch-app.js \"$sandbox_name\" \"\$ASAR_FILE\" || echo \"Warning: Patching failed, but continuing\"
                         break
                     fi
                 fi
             done
-            
-            # If no ASAR found in standard locations, do a system-wide search
-            if [ -z \"\$ASAR_FILE\" ]; then
-                echo \"Searching for app.asar in various locations...\"
-                ASAR_FILE=\$(find ~/.local -name 'app.asar' | grep -i claude | head -1)
-                
-                if [ -n \"\$ASAR_FILE\" ]; then
-                    echo \"Found app.asar at \$ASAR_FILE\"
-                    node ~/.config/claude-desktop/patch-app.js \"$sandbox_name\" \"\$ASAR_FILE\"
-                    
-                    # Check if we need to apply the patch to a system location
-                    PATCHED_ASAR=\"\$(ls -t ~/.cmgr/temp/patched-$sandbox_name.asar 2>/dev/null | head -1)\"
-                    if [ -n \"\$PATCHED_ASAR\" ] && [[ \"\$ASAR_FILE\" == /usr/* ]]; then
-                        echo \"System location detected, attempting to copy patched file...\"
-                        # Create system path info file if needed
-                        mkdir -p \"$HOME/.cmgr/temp\"
-                        echo \"\$ASAR_FILE\" > \"$HOME/.cmgr/temp/system-path-$sandbox_name.txt\"
-                        
-                        # Use the helper function from sandbox.sh
-                        copy_to_system_location \"\$PATCHED_ASAR\" \"\$ASAR_FILE\" || {
-                            echo \"WARNING: Failed to copy patched file to system location.\"
-                            echo \"You can apply the patch later with:\"
-                            echo \"sudo \$(which cmgr) apply-patches\"
-                        }
-                    fi
-                else
-                    echo \"Could not find app.asar, skipping patching\"
-                fi
-            fi
             
             echo 'Installation and patching completed!'
         " || log_warn "Failed to apply patches to app.asar, but installation completed."
         
         return 0
     else
-        log_error "Failed to install Claude Desktop in sandbox."
+        log_error "Claude Desktop installation verification failed."
         return 1
     fi
 }
