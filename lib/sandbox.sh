@@ -145,6 +145,7 @@ run_in_sandbox() {
     # Base bubblewrap command - CHANGED: use different home path inside sandbox
     local bwrap_cmd=(
         bwrap
+        --no-userns  # Explicitly disable user namespace creation to prevent uid map permission errors
         --proc /proc
         --tmpfs /tmp
         # Map the sandbox directory to /home/claude inside the container
