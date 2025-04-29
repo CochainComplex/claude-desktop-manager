@@ -271,19 +271,47 @@ const fs = require('fs');
 const path = require('path');
 
 try {
-  // Set up event listener for window creation
-  app.on('browser-window-created', (event, window) => {
-    window.webContents.on('did-finish-load', () => {
-      // Inject auto-approval script
-      const scriptPath = path.join(__dirname, 'mcp-auto-approve.js');
-      if (fs.existsSync(scriptPath)) {
-        const scriptContent = fs.readFileSync(scriptPath, 'utf8');
-        window.webContents.executeJavaScript(scriptContent)
-          .catch(err => console.error('Error injecting MCP auto-approver:', err));
-      }
+  // Check if we're in the main process with app available
+  if (typeof app !== 'undefined') {
+    // Set up event listener for window creation
+    app.on('browser-window-created', (event, window) => {
+      window.webContents.on('did-finish-load', () => {
+        // Inject auto-approval script
+        const scriptPath = path.join(__dirname, 'mcp-auto-approve.js');
+        if (fs.existsSync(scriptPath)) {
+          const scriptContent = fs.readFileSync(scriptPath, 'utf8');
+          window.webContents.executeJavaScript(scriptContent)
+            .catch(err => console.error('Error injecting MCP auto-approver:', err));
+        }
+      });
     });
-  });
-  console.log('MCP Auto-Approval system initialized from claude-desktop-manager');
+    console.log('MCP Auto-Approval system initialized from claude-desktop-manager (main process)');
+  } else if (typeof window !== 'undefined' && window.require) {
+    // In renderer process, try to get app via remote
+    try {
+      const { app } = window.require('electron').remote;
+      if (app) {
+        app.on('browser-window-created', (event, browserWindow) => {
+          browserWindow.webContents.on('did-finish-load', () => {
+            // Inject auto-approval script
+            const scriptPath = path.join(__dirname, 'mcp-auto-approve.js');
+            if (fs.existsSync(scriptPath)) {
+              const scriptContent = fs.readFileSync(scriptPath, 'utf8');
+              browserWindow.webContents.executeJavaScript(scriptContent)
+                .catch(err => console.error('Error injecting MCP auto-approver:', err));
+            }
+          });
+        });
+        console.log('MCP Auto-Approval system initialized from claude-desktop-manager (renderer process)');
+      } else {
+        console.log('Could not access app object via remote. Auto-approval may not work properly.');
+      }
+    } catch (remoteError) {
+      console.error('Failed to access remote module:', remoteError);
+    }
+  } else {
+    console.log('Neither app nor window.require is available. Auto-approval will not work in this context.');
+  }
 } catch (error) {
   console.error('Failed to initialize MCP Auto-Approval:', error);
 }

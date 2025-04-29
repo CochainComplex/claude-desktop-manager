@@ -4,8 +4,8 @@
 
 set -euo pipefail
 
-# Get absolute path to script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get absolute path to script directory, resolving symlinks
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 echo "Main script directory: ${SCRIPT_DIR}"
 
 # Make sure templates directory exists

@@ -26,7 +26,8 @@ create_sandbox() {
     mkdir -p "$sandbox_home"
     
     # Create fake passwd file for user mapping - keep the original user's entry
-    grep "^$(whoami):" /etc/passwd > "${SANDBOX_BASE}/fake_passwd.${sandbox_name}"
+    # Use SUDO_USER if available (running with sudo) or fall back to whoami
+    grep "^${SUDO_USER:-$(whoami)}:" /etc/passwd > "${SANDBOX_BASE}/fake_passwd.${sandbox_name}"
     
     # Create initialization script
     cat > "${sandbox_home}/init.sh" <<EOF

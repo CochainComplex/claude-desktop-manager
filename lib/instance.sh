@@ -395,8 +395,13 @@ start_instance() {
                 ELECTRON_FLAGS=\"\$ELECTRON_FLAGS --configPath=\$CLAUDE_CONFIG_PATH\"
             fi
             
-            # Find AppImage
-            appimage_file=\$(find \"\$HOME/Downloads\" -type f -name \"*.AppImage\" | head -1)
+            # Find Claude-specific AppImage first, then fall back to any AppImage
+            appimage_file=\$(find \"\$HOME/Downloads\" -type f -name \"*[Cc]laude*.AppImage\" 2>/dev/null | head -1)
+            if [ -z \"\$appimage_file\" ]; then
+                # Fallback to any AppImage if no Claude-specific one is found
+                appimage_file=\$(find \"\$HOME/Downloads\" -type f -name \"*.AppImage\" 2>/dev/null | head -1)
+            fi
+            
             if [ -n \"\$appimage_file\" ] && [ -x \"\$appimage_file\" ]; then
                 echo \"Starting Claude Desktop (AppImage format) with flags: \$ELECTRON_FLAGS\"
                 echo \"Instance name: \$CLAUDE_INSTANCE\"

@@ -28,10 +28,42 @@ get_next_port_range() {
     local allocations
     allocations=$(jq -r '.allocated_ports | keys | map(tonumber) | sort | .[-1] // 0' "$port_registry")
     
-    # Calculate next base port
-    local next_base=$((MCP_BASE_PORT + (allocations + 1) * MCP_PORT_RANGE))
+    # Starting point for port search
+    local start_base=$((MCP_BASE_PORT + (allocations + 1) * MCP_PORT_RANGE))
+    local max_tries=10
+    local next_base=$start_base
     
-    echo "$next_base"
+    # Try to find an available port range
+    for ((i=0; i<max_tries; i++)); do
+        # Test key tool ports in this range
+        local test_ports=(
+            $((next_base + 10))  # filesystem
+            $((next_base + 20))  # sequential-thinking
+            $((next_base + 30))  # memory
+        )
+        
+        local ports_available=true
+        for test_port in "${test_ports[@]}"; do
+            if is_port_in_use "$test_port"; then
+                ports_available=false
+                break
+            fi
+        done
+        
+        if [ "$ports_available" = "true" ]; then
+            # Found an available port range
+            echo "$next_base"
+            return 0
+        fi
+        
+        # Try the next range
+        next_base=$((next_base + MCP_PORT_RANGE))
+    done
+    
+    # If we couldn't find an available range, return the starting point and log a warning
+    echo "WARNING: Could not find a completely free port range after $max_tries attempts." >&2
+    echo "Using base port $start_base, but some tools might have port conflicts." >&2
+    echo "$start_base"
 }
 
 # Allocate port range for instance
@@ -202,7 +234,7 @@ generate_mcp_server_config() {
         "$(get_tool_port "$instance_name" "filesystem")"
       ],
       "env": {
-        "DISPLAY": ":0",
+        "DISPLAY": "${DISPLAY:-:0}",
         "MCP_PORT": "$(get_tool_port "$instance_name" "filesystem")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "filesystem")",
         "MCP_BASE_PORT": "$base_port",
@@ -218,7 +250,7 @@ generate_mcp_server_config() {
         "$(get_tool_port "$instance_name" "sequential-thinking")"
       ],
       "env": {
-        "DISPLAY": ":0",
+        "DISPLAY": "${DISPLAY:-:0}",
         "MCP_PORT": "$(get_tool_port "$instance_name" "sequential-thinking")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "sequential-thinking")",
         "MCP_BASE_PORT": "$base_port",
@@ -234,7 +266,7 @@ generate_mcp_server_config() {
         "$(get_tool_port "$instance_name" "memory")"
       ],
       "env": {
-        "DISPLAY": ":0",
+        "DISPLAY": "${DISPLAY:-:0}",
         "MCP_PORT": "$(get_tool_port "$instance_name" "memory")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "memory")",
         "MCP_BASE_PORT": "$base_port",
@@ -250,7 +282,7 @@ generate_mcp_server_config() {
         "$(get_tool_port "$instance_name" "desktop-commander")"
       ],
       "env": {
-        "DISPLAY": ":0",
+        "DISPLAY": "${DISPLAY:-:0}",
         "MCP_PORT": "$(get_tool_port "$instance_name" "desktop-commander")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "desktop-commander")",
         "MCP_BASE_PORT": "$base_port",
@@ -266,7 +298,7 @@ generate_mcp_server_config() {
         "$(get_tool_port "$instance_name" "repl")"
       ],
       "env": {
-        "DISPLAY": ":0",
+        "DISPLAY": "${DISPLAY:-:0}",
         "MCP_PORT": "$(get_tool_port "$instance_name" "repl")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "repl")",
         "MCP_BASE_PORT": "$base_port",
@@ -282,7 +314,7 @@ generate_mcp_server_config() {
         "$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")"
       ],
       "env": {
-        "DISPLAY": ":0",
+        "DISPLAY": "${DISPLAY:-:0}",
         "MCP_PORT": "$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")",
         "MCP_BASE_PORT": "$base_port",
