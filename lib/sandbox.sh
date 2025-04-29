@@ -145,7 +145,6 @@ run_in_sandbox() {
     # Base bubblewrap command - CHANGED: use different home path inside sandbox
     local bwrap_cmd=(
         bwrap
-        --no-userns  # Explicitly disable user namespace creation to prevent uid map permission errors
         --proc /proc
         --tmpfs /tmp
         # Map the sandbox directory to /home/claude inside the container
@@ -310,7 +309,8 @@ run_in_sandbox() {
     echo "CLAUDE_CONFIG_PATH=${sandbox_user_home}/.config/Claude/claude_desktop_config.json"
     
     # Execute command in sandbox
-    "${bwrap_cmd[@]}" "$@"
+    # Filter out specific uid map error message while preserving other errors
+    "${bwrap_cmd[@]}" "$@" 2> >(grep -v "setting up uid map: Permission denied" >&2)
     local result=$?
     
     # Clean up temporary Xauthority file if we created one
