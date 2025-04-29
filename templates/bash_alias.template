@@ -1,1 +1,11 @@
+# Basic alias for starting the instance
 alias {alias_name}='{script_path} start {instance}'
+
+# Additional helpful aliases
+alias {alias_name}-stop='{script_path} stop {instance}'
+alias {alias_name}-config='{script_path} config {instance}'
+alias {alias_name}-mcp='{script_path} mcp {instance}'
+alias {alias_name}-shell='{script_path} execute {instance} bash'
+
+# Help comment
+# Note: Source this file with: source ~/.bash_aliases

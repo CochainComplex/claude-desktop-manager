@@ -63,6 +63,9 @@ This project extends [emsi/claude-desktop](https://github.com/emsi/claude-deskto
 # Create a new Claude Desktop instance
 cmgr create my-instance
 
+# Create an instance with MCP auto-approval enabled
+cmgr create work-instance --mcp-auto-approve
+
 # Launch an instance
 cmgr start my-instance
 
@@ -74,6 +77,12 @@ cmgr stop my-instance
 
 # Remove an instance
 cmgr remove my-instance
+
+# Import MCP configuration from host to instance
+cmgr import-config my-instance
+
+# Import MCP configuration from one instance to another
+cmgr import-config target-instance source-instance
 
 # Get help
 cmgr help
@@ -205,6 +214,35 @@ See the [Patching Documentation](docs/PATCHING.md) for details on:
 ## MCP Tool Integration
 
 Claude Desktop Manager provides robust support for MCP (Machine-Computer Protocol) tools, which enable Claude to interact with your computer.
+
+### MCP Configuration Management
+
+The Claude Desktop Manager makes it easy to manage MCP configurations across instances. Each instance maintains its own isolated MCP configuration, allowing you to:
+
+1. Create instances with different MCP server settings
+2. Configure different auto-approval behaviors per instance
+3. Test different MCP tool configurations in isolation
+
+#### Importing MCP Configurations
+
+You can easily share MCP configurations between instances or import from your host system:
+
+```bash
+# Import MCP configuration from host system to an instance
+cmgr import-config my-instance
+
+# Import MCP configuration from one instance to another
+cmgr import-config target-instance source-instance
+```
+
+This feature is useful when:
+- You've already configured MCP tools on your host system
+- You want to share a configuration between instances
+- You need to recreate an instance while preserving its MCP settings
+
+#### Environment Variable Support
+
+Claude Desktop Manager now explicitly sets the `CLAUDE_CONFIG_PATH` environment variable to ensure consistent MCP configuration location awareness inside the sandbox environment. This helps prevent confusion about which configuration file is being used and ensures each instance maintains its own settings.
 
 ### Auto-approval Configuration
 

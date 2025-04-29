@@ -36,7 +36,8 @@ set -e
 # Create basic directories
 mkdir -p ~/Documents
 mkdir -p ~/Downloads
-mkdir -p ~/.config
+mkdir -p ~/.config/Claude
+mkdir -p ~/.config/claude-desktop
 mkdir -p ~/.local/share/applications
 
 # Confirm initialization is complete
@@ -57,6 +58,22 @@ EOF
     
     # Add custom prompt to identify the Claude instance
     echo 'PS1="\[\e[48;5;208m\e[97m\]claude-'"${sandbox_name}"'\[\e[0m\] \[\e[1;32m\]\h:\w\[\e[0m\]$ "' >> "${sandbox_home}/.bashrc"
+    
+    # Copy existing MCP configuration if available
+    mkdir -p "${sandbox_home}/.config/Claude"
+    if [ -f "${HOME}/.config/Claude/claude_desktop_config.json" ]; then
+        echo "Copying existing MCP configuration to sandbox..."
+        cp "${HOME}/.config/Claude/claude_desktop_config.json" "${sandbox_home}/.config/Claude/"
+    else
+        # Create default MCP configuration
+        echo "Creating default MCP configuration in sandbox..."
+        cat > "${sandbox_home}/.config/Claude/claude_desktop_config.json" <<EOF
+{
+  "showTray": true,
+  "electronInitScript": "$HOME/.config/Claude/electron/preload.js"
+}
+EOF
+    fi
     
     # Initialize sandbox
     run_in_sandbox "$sandbox_name" "./init.sh"
@@ -193,6 +210,7 @@ run_in_sandbox() {
         --setenv COLORTERM "${COLORTERM:-}"
         --setenv BASH_ENV "${real_home_dir}/.bashrc"
         --setenv CLAUDE_INSTANCE "${sandbox_name}"
+        --setenv CLAUDE_CONFIG_PATH "${real_home_dir}/.config/Claude/claude_desktop_config.json"
     )
     
     # Add X11 authentication environment variables if they exist

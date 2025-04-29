@@ -205,7 +205,7 @@ try {
       }
     });
   });
-  console.log('MCP Auto-Approval system initialized from emsi/claude-desktop');
+  console.log('MCP Auto-Approval system initialized from claude-desktop-manager');
 } catch (error) {
   console.error('Failed to initialize MCP Auto-Approval:', error);
 }
@@ -213,15 +213,21 @@ EOF
     
     # Create or update config file
     if [ -f "$config_file" ]; then
-        # Update existing config with the path as it would appear inside the sandbox
-        jq '.autoApproveMCP = true | .electronInitScript = "$HOME/.config/Claude/electron/init.js"' "$config_file" > "${config_file}.tmp" && \
+        # Update existing config with the absolute path to avoid $HOME expansion issues
+        local absolute_init_path="${config_dir}/electron/init.js"
+        absolute_init_path="${absolute_init_path/#$HOME/\$HOME}" # Replace real home with $HOME variable for portability
+        
+        jq --arg initpath "$absolute_init_path" '.autoApproveMCP = true | .electronInitScript = $initpath' "$config_file" > "${config_file}.tmp" && \
         mv "${config_file}.tmp" "$config_file"
     else
-        # Create new config
+        # Create new config with absolute path
+        local absolute_init_path="${config_dir}/electron/init.js"
+        absolute_init_path="${absolute_init_path/#$HOME/\$HOME}" # Replace real home with $HOME variable for portability
+        
         cat > "$config_file" <<EOF
 {
   "autoApproveMCP": true,
-  "electronInitScript": "$HOME/.config/Claude/electron/init.js"
+  "electronInitScript": "${absolute_init_path}"
 }
 EOF
     fi
@@ -259,5 +265,66 @@ EOF
     fi
     
     echo "MCP server configured."
+    return 0
+}
+
+# Import MCP configuration from host or another instance
+import_mcp_config() {
+    local instance_name="$1"
+    local source="${2:-host}"
+    
+    # Check if target instance exists
+    if ! instance_exists "$instance_name"; then
+        echo "Error: Instance '$instance_name' does not exist."
+        return 1
+    fi
+    
+    local target_sandbox="${SANDBOX_BASE}/${instance_name}"
+    local target_config_dir="${target_sandbox}/.config/Claude"
+    local target_config_file="${target_config_dir}/claude_desktop_config.json"
+    
+    # Ensure target config directory exists
+    mkdir -p "${target_config_dir}"
+    
+    # Determine source config path
+    local source_config
+    if [ "$source" = "host" ]; then
+        # Import from host system
+        source_config="${HOME}/.config/Claude/claude_desktop_config.json"
+        echo "Importing MCP configuration from host system..."
+    else
+        # Import from another instance
+        if ! instance_exists "$source"; then
+            echo "Error: Source instance '$source' does not exist."
+            return 1
+        fi
+        source_config="${SANDBOX_BASE}/${source}/.config/Claude/claude_desktop_config.json"
+        echo "Importing MCP configuration from instance '$source'..."
+    fi
+    
+    # Check if source config exists
+    if [ ! -f "$source_config" ]; then
+        echo "Error: Source configuration not found at ${source_config}"
+        return 1
+    fi
+    
+    # Copy the configuration file
+    cp "$source_config" "$target_config_file"
+    
+    # Update paths in the configuration to reflect the target instance
+    local tmpfile="${target_config_file}.tmp"
+    
+    # If electron init script path exists, update it
+    if grep -q "electronInitScript" "$target_config_file"; then
+        # Update the electronInitScript path to point to the correct location
+        jq --arg instance "$instance_name" \
+           '.electronInitScript = .electronInitScript | 
+            sub("/Claude/"; "/Claude/")' \
+           "$target_config_file" > "$tmpfile" && \
+        mv "$tmpfile" "$target_config_file"
+    fi
+    
+    echo "MCP configuration imported successfully to instance '$instance_name'."
+    echo "You may need to add instance-specific settings such as auto-approve."
     return 0
 }

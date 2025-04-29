@@ -227,13 +227,26 @@ start_instance() {
     # Debug display information before starting
     echo "Starting instance with DISPLAY=${DISPLAY:-unset}, XAUTHORITY=${XAUTHORITY:-unset}"
     
-    # Instead of creating a temporary script file, we'll directly execute the needed commands
-    # in the sandbox using inline commands to avoid temp file issues
+    # Check if MCP config exists in the sandbox
+    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
+    local mcp_config_file="${sandbox_home}/.config/Claude/claude_desktop_config.json"
+    
+    if [ ! -f "$mcp_config_file" ]; then
+        echo "Warning: MCP configuration file not found in sandbox. Creating default config..."
+        mkdir -p "${sandbox_home}/.config/Claude"
+        cat > "$mcp_config_file" <<EOF
+{
+  "showTray": true,
+  "electronInitScript": "$HOME/.config/Claude/electron/preload.js"
+}
+EOF
+    fi
     
     # Execute directly in the sandbox using a bash one-liner
     if [ "$build_format" = "deb" ]; then
         run_in_sandbox "$instance_name" bash -c '
             echo "Inside sandbox: DISPLAY=$DISPLAY, XAUTHORITY=$XAUTHORITY"
+            echo "MCP configuration path: $CLAUDE_CONFIG_PATH"
             
             # Test X11 connection
             if command -v xdpyinfo >/dev/null 2>&1; then
@@ -264,8 +277,18 @@ start_instance() {
             
             # Export LIBVA_DRIVER_NAME to avoid libva errors
             export LIBVA_DRIVER_NAME=dummy
+            
             # Set the CLAUDE_INSTANCE environment variable for window title
             export CLAUDE_INSTANCE="$CLAUDE_INSTANCE"
+            
+            # Add MCP configuration flag if environment variable is set
+            if [ -n "$CLAUDE_CONFIG_PATH" ] && [ -f "$CLAUDE_CONFIG_PATH" ]; then
+                echo "Using MCP configuration from: $CLAUDE_CONFIG_PATH"
+                # Add config path to electron flags if supported by Claude desktop
+                if grep -q "configPath" "$HOME/.local/bin/claude-desktop" 2>/dev/null; then
+                    ELECTRON_FLAGS="$ELECTRON_FLAGS --configPath=$CLAUDE_CONFIG_PATH"
+                fi
+            fi
             
             if [ -x "$HOME/.local/bin/claude-desktop" ]; then
                 echo "Starting Claude Desktop (deb format) with flags: $ELECTRON_FLAGS"
@@ -279,6 +302,7 @@ start_instance() {
     else
         run_in_sandbox "$instance_name" bash -c '
             echo "Inside sandbox: DISPLAY=$DISPLAY, XAUTHORITY=$XAUTHORITY"
+            echo "MCP configuration path: $CLAUDE_CONFIG_PATH"
             
             # Test X11 connection
             if command -v xdpyinfo >/dev/null 2>&1; then
@@ -311,6 +335,13 @@ start_instance() {
             export LIBVA_DRIVER_NAME=dummy
             # Set the CLAUDE_INSTANCE environment variable for window title
             export CLAUDE_INSTANCE="$CLAUDE_INSTANCE"
+            
+            # Add MCP configuration flag if environment variable is set
+            if [ -n "$CLAUDE_CONFIG_PATH" ] && [ -f "$CLAUDE_CONFIG_PATH" ]; then
+                echo "Using MCP configuration from: $CLAUDE_CONFIG_PATH"
+                # Add config path to electron flags if supported by Claude desktop
+                ELECTRON_FLAGS="$ELECTRON_FLAGS --configPath=$CLAUDE_CONFIG_PATH"
+            fi
             
             # Find AppImage
             appimage_file=$(find "$HOME/Downloads" -type f -name "*.AppImage" | head -1)

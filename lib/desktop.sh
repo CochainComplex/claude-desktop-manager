@@ -12,13 +12,20 @@ create_alias() {
         return 1
     fi
     
-    echo "Creating shell alias '$alias_name' for instance '$instance_name'..."
+    echo "Creating shell aliases for instance '$instance_name'..."
     
-    # Get script directory
+    # Get script directory and template file
     local script_path
     script_path="$(realpath "$0")"
+    local template_file="${SCRIPT_DIR}/templates/bash_alias.template"
     
-    # Create alias in user's .bashrc or .bash_aliases
+    # Check if template exists
+    if [ ! -f "$template_file" ]; then
+        echo "Warning: Alias template not found at ${template_file}, using minimal template."
+        template_file=""
+    fi
+    
+    # Create alias in user's .bash_aliases
     local alias_file="$HOME/.bash_aliases"
     
     # Create .bash_aliases if it doesn't exist
@@ -28,14 +35,38 @@ create_alias() {
     
     # Check if alias already exists
     if grep -q "alias $alias_name=" "$alias_file"; then
-        # Update existing alias
-        sed -i "s|alias $alias_name=.*|alias $alias_name='$script_path start $instance_name'|" "$alias_file"
-    else
-        # Add new alias
-        echo "alias $alias_name='$script_path start $instance_name'" >> "$alias_file"
+        # Remove all existing aliases for this instance
+        sed -i "/alias $alias_name/d" "$alias_file"
+        echo "Removed existing aliases for '$alias_name'."
     fi
     
-    echo "Alias created. Run 'source ~/.bash_aliases' to enable it in the current shell."
+    # Create a temporary file for the new aliases
+    local temp_file
+    temp_file="$(mktemp)"
+    
+    if [ -f "$template_file" ]; then
+        # Use the template file
+        cat "$template_file" > "$temp_file"
+        
+        # Replace template variables
+        sed -i "s|{alias_name}|$alias_name|g" "$temp_file"
+        sed -i "s|{script_path}|$script_path|g" "$temp_file"
+        sed -i "s|{instance}|$instance_name|g" "$temp_file"
+    else
+        # Create minimal alias if template not found
+        echo "alias $alias_name='$script_path start $instance_name'" > "$temp_file"
+    fi
+    
+    # Append to .bash_aliases
+    cat "$temp_file" >> "$alias_file"
+    rm -f "$temp_file"
+    
+    echo "Aliases created. Run 'source ~/.bash_aliases' to enable them in the current shell."
+    
+    # Show the new aliases
+    echo "Created aliases:"
+    grep -n "$alias_name" "$alias_file" | sed 's/^/  /'
+    
     return 0
 }
 
