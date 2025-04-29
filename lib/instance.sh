@@ -164,6 +164,14 @@ create_instance() {
         return 1
     fi
     
+    # Check for user namespace support before creating sandbox
+    if ! check_userns_enabled &>/dev/null; then
+        echo "Warning: Unprivileged user namespaces are not enabled on this system."
+        echo "You might see 'setting up uid map: Permission denied' errors, but the sandbox should still function."
+        echo "To enable unprivileged user namespaces, run: cmgr enable-userns"
+        echo "Continuing with sandbox creation..."
+    fi
+    
     # Create sandbox
     if ! create_sandbox "$instance_name"; then
         echo "Error: Failed to create sandbox for instance '$instance_name'."
@@ -339,7 +347,7 @@ start_instance() {
             fi
             
             # These paths should not be accessible in the sandbox
-            if [ -d \"${HOME}\" ] || [ -d \"/home/awarth\" ]; then
+            if [ -d \"${HOME}\" ] || [ -d \"/home/${SUDO_USER:-$(whoami)}\" ]; then
                 # Add debug information if we can still access real home
                 echo \"WARNING: Still have access to real user's home directory!\"
                 echo \"Sandbox is not fully isolated.\"
@@ -348,10 +356,10 @@ start_instance() {
                 fi
                 
                 # Try to fix access by mounting a temporary filesystem over the real home
-                if [ -d \"/home/awarth\" ]; then
-                    echo \"Attempting to block access to /home/awarth with tmpfs...\"
+                if [ -d \"/home/${SUDO_USER:-$(whoami)}\" ]; then
+                    echo \"Attempting to block access to /home/${SUDO_USER:-$(whoami)} with tmpfs...\"
                     mkdir -p /tmp/empty
-                    if ! mount -t tmpfs none \"/home/awarth\" 2>/dev/null; then
+                    if ! mount -t tmpfs none \"/home/${SUDO_USER:-$(whoami)}\" 2>/dev/null; then
                         echo \"Mount failed, no permission. Sandboxing may be incomplete.\"
                     else
                         echo \"Successfully blocked access to real home with tmpfs.\"

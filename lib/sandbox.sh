@@ -23,6 +23,13 @@ create_sandbox() {
         return 0
     fi
     
+    # Check if user namespaces are enabled and report status
+    local userns_status="disabled"
+    if check_userns_enabled &>/dev/null; then
+        userns_status="enabled"
+    fi
+    echo "User namespaces: $userns_status (sandbox will function either way)"
+    
     # Create sandbox directory
     mkdir -p "$sandbox_home"
     
@@ -220,17 +227,30 @@ run_in_sandbox() {
     # CRITICAL: Block access to real user's home directory - Use multiple approaches to ensure blocking
     # First, mount tmpfs over the real home
     bwrap_cmd+=(--tmpfs "${HOME}")
+    
+    # Get current username dynamically
+    local current_user="${SUDO_USER:-$(whoami)}"
+    
     # Also try to block direct path to user home
-    if [ "${HOME}" != "/home/awarth" ]; then
-        bwrap_cmd+=(--tmpfs "/home/awarth")
+    if [ "${HOME}" != "/home/${current_user}" ] && [ -d "/home/${current_user}" ]; then
+        bwrap_cmd+=(--tmpfs "/home/${current_user}")
     fi
+    
     # Make sure all known paths to the real home are blocked
-    for username in awarth root; do
+    for username in "${current_user}" root; do
         if [ -d "/home/$username" ] && [ "/home/$username" != "${sandbox_user_home}" ]; then
             bwrap_cmd+=(--tmpfs "/home/$username")
             echo "Blocking access to $username home: /home/$username"
         fi
     done
+    
+    # Block common user homes for extra security
+    for username in "ubuntu" "debian" "linuxbrew"; do
+        if [ -d "/home/$username" ] && [ "/home/$username" != "${sandbox_user_home}" ]; then
+            bwrap_cmd+=(--tmpfs "/home/$username")
+        fi
+    done
+    
     echo "Blocking access to real user home directories"
     
     # Try to determine the correct display

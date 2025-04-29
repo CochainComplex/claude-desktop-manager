@@ -39,9 +39,14 @@ done
 
 echo -e "\n--- Real Home Access Test ---"
 # Try to detect if we can access the real home directory
+# Get current username dynamically
+current_user="${SUDO_USER:-$(whoami)}"
+
 real_home_paths=(
-    "/home/awarth"  # Your real username
-    "/root"         # Root's home
+    "/home/${current_user}"  # Real username detected dynamically
+    "/root"                  # Root's home
+    "/home/ubuntu"           # Common username on cloud instances
+    "/home/debian"           # Common username on Debian-based systems
 )
 
 for real_home in "${real_home_paths[@]}"; do

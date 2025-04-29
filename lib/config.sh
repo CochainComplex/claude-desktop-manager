@@ -424,10 +424,9 @@ import_mcp_config() {
     
     # If electron init script path exists, update it
     if grep -q "electronInitScript" "$target_config_file"; then
-        # Update the electronInitScript path to point to the correct location
-        jq --arg instance "$instance_name" \
-           '.electronInitScript = .electronInitScript | 
-            sub("/Claude/"; "/Claude/")' \
+        # Update the electronInitScript path to point to the correct location in the sandbox
+        jq --arg instance_dir "/home/claude/.config/Claude/electron" \
+           '.electronInitScript = $instance_dir + "/preload.js"' \
            "$target_config_file" > "$tmpfile" && \
         mv "$tmpfile" "$target_config_file"
     fi

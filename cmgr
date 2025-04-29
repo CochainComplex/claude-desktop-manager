@@ -155,7 +155,8 @@ cmd_fix_warnings() {
         # For safety, check if we're in the project root
         if [ ! -d "${template_dir}" ]; then
             # Last resort, use the path directly
-            template_dir="/home/awarth/Devstuff/claude-desktop-manager/templates"
+            # Use the base directory of the script instead of a hardcoded path
+            template_dir="$(cd "$(dirname "$0")" && pwd)/templates"
         fi
     fi
     
@@ -810,6 +811,26 @@ cmd_help() {
     show_help
 }
 
+cmd_enable_userns() {
+    echo "Checking and enabling unprivileged user namespaces..."
+    
+    if check_userns_enabled; then
+        echo "✓ Unprivileged user namespaces are already enabled"
+    else
+        echo "Unprivileged user namespaces are not enabled."
+        if enable_userns; then
+            echo "✓ Successfully enabled unprivileged user namespaces"
+        else
+            echo "❌ Failed to enable unprivileged user namespaces."
+            echo "Some features may not work correctly without user namespaces."
+            echo "You may see 'setting up uid map: Permission denied' errors."
+            echo "You can try running 'sudo sysctl -w kernel.unprivileged_userns_clone=1' manually."
+        fi
+    fi
+    
+    return 0
+}
+
 # Main command dispatcher
 main() {
     if [ $# -eq 0 ]; then
@@ -909,6 +930,9 @@ main() {
             ;;
         update-title)
             cmd_update_title "$@"
+            ;;
+        enable-userns)
+            cmd_enable_userns
             ;;
         help|--help|-h)
             cmd_help

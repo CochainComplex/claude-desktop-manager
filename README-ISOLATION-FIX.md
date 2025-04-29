@@ -6,7 +6,7 @@ This document explains the changes made to improve the sandboxing and isolation 
 
 The original Claude Desktop Manager had issues with sandbox isolation:
 
-1. Claude Desktop instances could access the real user's home directory (`/home/awarth`), including MCP configurations
+1. Claude Desktop instances could access the real user's home directory (`/home/${SUDO_USER:-$(whoami)}`), including MCP configurations
 2. The sandbox was using a path mapping that maintained access to the real home directory
 3. MCP configurations were using incorrect paths
 
@@ -68,7 +68,7 @@ To verify that the sandbox is properly isolated:
 
 2. If you still see access to the real home directory, try using the fix-home-access.sh script.
 
-3. Check that all paths in MCP configs use `/home/claude` rather than `/home/awarth`.
+3. Check that all paths in MCP configs use `/home/claude` rather than `/home/${SUDO_USER:-$(whoami)}`.
 
 ## Future Improvements
 

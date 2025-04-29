@@ -22,6 +22,7 @@ Commands:
   execute <n> [command]  Execute a Claude Desktop command in instance
   fix-warnings <n>       Fix MaxListenersExceededWarning in an instance
   update-title <n>       Update window title to show instance name
+  enable-userns        Enable unprivileged user namespaces (needed for sandboxing)
   patch-app <n>          Patch app.asar directly with instance name and fix warnings
   help                   Show this help message
 
@@ -47,6 +48,7 @@ Examples:
   cmgr import-config work                 Import MCP config from host to work instance
   cmgr import-config work personal        Import MCP config from personal to work instance
   cmgr alias work                         Create an alias for the work instance
+  cmgr enable-userns                      Enable unprivileged user namespaces (on Ubuntu 24.04+)
   cmgr fix-warnings work                  Fix MaxListenersExceededWarning in work instance
   cmgr update-title work                  Update window title to show the instance name
   cmgr mcp work --auto-approve            Configure work instance to auto-approve MCP tools

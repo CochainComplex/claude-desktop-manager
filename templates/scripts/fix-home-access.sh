@@ -10,7 +10,9 @@ echo "User: $(whoami)"
 echo "Home: $HOME"
 
 # Test if we have access to the real user's home
-REAL_HOME="/home/awarth"
+# Get current username dynamically
+CURRENT_USER="${SUDO_USER:-$(whoami)}"
+REAL_HOME="/home/${CURRENT_USER}"
 if [ -d "$REAL_HOME" ]; then
     echo "WARNING: Can access real user's home: $REAL_HOME"
     

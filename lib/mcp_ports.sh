@@ -171,25 +171,36 @@ release_port_range() {
 # Check if a port is in use
 is_port_in_use() {
     local port="$1"
+    local port_in_use=1  # Default to not in use (return 1 means port is free)
     
     # Try to bind to the port to see if it's available
     if command -v nc >/dev/null 2>&1; then
-        # Use netcat if available
-        nc -z localhost "$port" >/dev/null 2>&1
-        return $?
+        # Use netcat if available - returns 0 if port is in use
+        if nc -z localhost "$port" >/dev/null 2>&1; then
+            port_in_use=0  # Port is in use
+        fi
     elif command -v ss >/dev/null 2>&1; then
-        # Use ss command
-        ss -ltn | grep -q ":$port "
-        return $?
+        # Use ss command - returns 0 if pattern is found (port in use)
+        if ss -ltn | grep -q ":$port "; then
+            port_in_use=0  # Port is in use
+        fi
     elif command -v netstat >/dev/null 2>&1; then
-        # Use netstat command
-        netstat -tln | grep -q ":$port "
-        return $?
+        # Use netstat command - returns 0 if pattern is found (port in use)
+        if netstat -tln | grep -q ":$port "; then
+            port_in_use=0  # Port is in use
+        fi
     else
         # Fallback to trying to create a socket
-        (echo > /dev/tcp/localhost/"$port") >/dev/null 2>&1
-        return $?
+        # This will return non-zero if the port is in use
+        if ! (echo > /dev/tcp/localhost/"$port") >/dev/null 2>&1; then
+            port_in_use=0  # Port is in use
+        fi
     fi
+    
+    # Return 0 if port is in use, 1 if port is free
+    # This makes it consistent with standard Unix return values
+    # and works correctly with the ! operator in find_available_port()
+    return $port_in_use
 }
 
 # Find available port in a range

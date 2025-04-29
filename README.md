@@ -334,6 +334,27 @@ These tools can be accessed within Claude conversations when approved.
 
 ## Troubleshooting
 
+### Unprivileged User Namespaces
+
+On Ubuntu 24.04 and newer systems, unprivileged user namespaces are disabled by default for security reasons. This may cause the following error when creating sandboxes:
+
+```
+bwrap: setting up uid map: Permission denied
+```
+
+This error is non-fatal - the sandbox will still be created and function properly despite this message. To eliminate this error message, you can enable unprivileged user namespaces with the following command:
+
+```bash
+cmgr enable-userns
+```
+
+This will attempt to enable unprivileged user namespaces system-wide. If you don't have sudo privileges, you can ask your system administrator to run:
+
+```bash
+sudo sysctl -w kernel.unprivileged_userns_clone=1
+echo 'kernel.unprivileged_userns_clone = 1' | sudo tee /etc/sysctl.d/00-local-userns.conf
+```
+
 ### System Permissions for Patching
 
 If you encounter errors during instance creation related to patching the `app.asar` file in system directories (e.g., `/usr/lib/claude-desktop/`), follow these steps:

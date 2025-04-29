@@ -450,7 +450,8 @@ install_claude_in_sandbox() {
         # For safety, check if we're in the project root
         if [ ! -d "${template_dir}" ]; then
             # Last resort, use the path directly
-            template_dir="/home/awarth/Devstuff/claude-desktop-manager/templates"
+            # Use the base directory of the script instead of a hardcoded path
+            template_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && cd .. && pwd)/templates"
         fi
     fi
     
@@ -471,7 +472,8 @@ install_claude_in_sandbox() {
     
     # Use absolute path if needed
     if [ ! -d "${scripts_dir}" ] || [ ! -f "${scripts_dir}/patch-app.js" ]; then
-        scripts_dir="/home/awarth/Devstuff/claude-desktop-manager/scripts"
+        # Use the base directory of the script instead of a hardcoded path
+        scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && cd .. && pwd)/scripts"
     fi
     
     if [ -f "${scripts_dir}/patch-app.js" ]; then
