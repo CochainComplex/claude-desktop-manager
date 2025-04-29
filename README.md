@@ -470,7 +470,34 @@ If you experience "Server disconnected" errors or other MCP connection issues:
 
 ## Uninstallation
 
-To completely remove Claude Desktop Manager and all associated files:
+### Using the Purge Script (Recommended)
+
+A purge script is provided for completely removing Claude Desktop Manager and all associated files:
+
+```bash
+# Download the purge script
+wget -O purge-claude-manager.sh https://raw.githubusercontent.com/your-username/claude-desktop-manager/main/scripts/purge-claude-manager.sh
+
+# Make it executable
+chmod +x purge-claude-manager.sh
+
+# Run the script
+./purge-claude-manager.sh
+```
+
+The script will:
+1. Remove all Claude Desktop instances
+2. Remove all configuration files and cache
+3. Remove command-line aliases
+4. Remove desktop shortcuts
+5. Optionally remove system-wide installation
+6. Optionally remove Claude Desktop application files
+
+For safety, the script requires you to type 'PURGE ALL CLAUDE DATA' to confirm deletion.
+
+### Manual Uninstallation
+
+If you prefer to manually uninstall, follow these steps:
 
 ```bash
 # Remove all instances
@@ -494,14 +521,7 @@ rm -f ~/.local/share/applications/claude-*.desktop
 sudo rm -f /usr/local/bin/cmgr
 ```
 
-This will remove:
-1. All Claude Desktop instances and their sandboxes
-2. All configuration files and cache
-3. Command-line aliases for Claude instances
-4. Desktop shortcuts
-5. System-wide executable (if installed)
-
-No Claude Desktop Manager files will remain on your system after this complete uninstallation.
+This will completely remove Claude Desktop Manager and all its associated files from your system.
 
 ## License
 
