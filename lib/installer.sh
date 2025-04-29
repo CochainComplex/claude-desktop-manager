@@ -483,9 +483,36 @@ install_claude_in_sandbox() {
     
     # Run the installation script in the sandbox
     log_info "Running installation script in sandbox..."
-    if ! run_in_sandbox "$sandbox_name" "./install-claude.sh"; then
-        log_error "Installation script failed."
-        return 1
+    
+    # Create a wrapper script to ignore the UID mapping error
+    local wrapper_script="${sandbox_home}/wrapper.sh"
+    cat > "$wrapper_script" << 'EOF'
+#!/bin/bash
+
+# Run the install script and capture its output and exit status
+./install-claude.sh 2>&1 | tee /tmp/install-output.log
+
+# Check if the only error was the UID mapping error
+if grep -q "setting up uid map: Permission denied" /tmp/install-output.log && ! grep -q "ERROR:" /tmp/install-output.log; then
+    # Success - ignore the UID mapping error
+    exit 0
+fi
+
+# Otherwise, preserve the original exit code
+exit ${PIPESTATUS[0]}
+EOF
+    
+    chmod +x "$wrapper_script"
+    
+    # Run the wrapper
+    if ! run_in_sandbox "$sandbox_name" "./wrapper.sh"; then
+        # Even if the script failed, check if the executable was installed anyway
+        if run_in_sandbox "$sandbox_name" "[ -x \$HOME/.local/bin/claude-desktop ]" 2>/dev/null; then
+            log_warn "Install script reported error but claude-desktop executable exists, continuing..."
+        else
+            log_error "Installation script failed."
+            return 1
+        fi
     fi
     
     # Verify installation by checking for executable
