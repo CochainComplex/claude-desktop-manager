@@ -258,11 +258,17 @@ start_instance() {
     local base_port
     base_port=$(get_port_base "$instance_name")
     
+    # Get sandbox user info for path consistency
+    local sandbox_username="claude"  # Must match the username in sandbox.sh
+    local sandbox_user_home="/home/${sandbox_username}" # Must match the path in sandbox.sh
+    
     # Execute directly in the sandbox using a bash one-liner
     if [ "$build_format" = "deb" ]; then
         run_in_sandbox "$instance_name" bash -c "
             echo \"Inside sandbox: DISPLAY=\$DISPLAY, XAUTHORITY=\$XAUTHORITY\"
             echo \"MCP configuration path: \$CLAUDE_CONFIG_PATH\"
+            echo \"Sandbox username: \$USER\"
+            echo \"Sandbox home: \$HOME\"
             
             # Test X11 connection
             if command -v xdpyinfo >/dev/null 2>&1; then
@@ -315,13 +321,29 @@ start_instance() {
             # Set the CLAUDE_INSTANCE environment variable for window title
             export CLAUDE_INSTANCE=\"$instance_name\"
             
+            # Verify config path
+            echo \"Checking if config file exists: \$CLAUDE_CONFIG_PATH\"
+            if [ -f \"\$CLAUDE_CONFIG_PATH\" ]; then
+                echo \"✓ Config file exists\"
+                echo \"Config file content:\"
+                cat \"\$CLAUDE_CONFIG_PATH\"
+            else
+                echo \"❌ Config file does not exist: \$CLAUDE_CONFIG_PATH\"
+            fi
+            
             # Add MCP configuration flag if environment variable is set
             if [ -n \"\$CLAUDE_CONFIG_PATH\" ] && [ -f \"\$CLAUDE_CONFIG_PATH\" ]; then
                 echo \"Using MCP configuration from: \$CLAUDE_CONFIG_PATH\"
                 # Add config path to electron flags if supported by Claude desktop
-                if grep -q \"configPath\" \"\$HOME/.local/bin/claude-desktop\" 2>/dev/null; then
-                    ELECTRON_FLAGS=\"\$ELECTRON_FLAGS --configPath=\$CLAUDE_CONFIG_PATH\"
-                fi
+                ELECTRON_FLAGS=\"\$ELECTRON_FLAGS --configPath=\$CLAUDE_CONFIG_PATH\"
+            fi
+            
+            # Check if we can access the real user's home directory (should fail)
+            if [ -d \"${HOME}\" ]; then
+                echo \"WARNING: Still have access to real user's home directory: ${HOME}\"
+                ls -la \"${HOME}/.config/Claude\" 2>/dev/null && echo \"Can access real user's Claude config!\"
+            else
+                echo \"✓ Cannot access real user's home directory (expected behavior)\"
             fi
             
             if [ -x \"\$HOME/.local/bin/claude-desktop\" ]; then
@@ -337,6 +359,8 @@ start_instance() {
         run_in_sandbox "$instance_name" bash -c "
             echo \"Inside sandbox: DISPLAY=\$DISPLAY, XAUTHORITY=\$XAUTHORITY\"
             echo \"MCP configuration path: \$CLAUDE_CONFIG_PATH\"
+            echo \"Sandbox username: \$USER\"
+            echo \"Sandbox home: \$HOME\"
             
             # Test X11 connection
             if command -v xdpyinfo >/dev/null 2>&1; then
@@ -387,6 +411,24 @@ start_instance() {
             export LIBVA_DRIVER_NAME=dummy
             # Set the CLAUDE_INSTANCE environment variable for window title
             export CLAUDE_INSTANCE=\"$instance_name\"
+            
+            # Verify config path
+            echo \"Checking if config file exists: \$CLAUDE_CONFIG_PATH\"
+            if [ -f \"\$CLAUDE_CONFIG_PATH\" ]; then
+                echo \"✓ Config file exists\"
+                echo \"Config file content:\"
+                cat \"\$CLAUDE_CONFIG_PATH\"
+            else
+                echo \"❌ Config file does not exist: \$CLAUDE_CONFIG_PATH\"
+            fi
+            
+            # Check if we can access the real user's home directory (should fail)
+            if [ -d \"${HOME}\" ]; then
+                echo \"WARNING: Still have access to real user's home directory: ${HOME}\"
+                ls -la \"${HOME}/.config/Claude\" 2>/dev/null && echo \"Can access real user's Claude config!\"
+            else
+                echo \"✓ Cannot access real user's home directory (expected behavior)\"
+            fi
             
             # Add MCP configuration flag if environment variable is set
             if [ -n \"\$CLAUDE_CONFIG_PATH\" ] && [ -f \"\$CLAUDE_CONFIG_PATH\" ]; then

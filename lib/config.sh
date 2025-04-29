@@ -252,10 +252,14 @@ configure_mcp_auto_approve() {
     
     echo "Configuring MCP auto-approval for instance '$instance_name'..."
     
+    # Get sandbox directory and paths on host
     local sandbox_home="${SANDBOX_BASE}/${instance_name}"
     local config_dir="${sandbox_home}/.config/Claude"
     local config_file="${config_dir}/claude_desktop_config.json"
     local electron_dir="${config_dir}/electron"
+    
+    # Sandbox user home path - must match the path used in sandbox.sh
+    local sandbox_user_home="/home/claude"
     
     # Ensure config directories exist
     mkdir -p "${config_dir}"
@@ -319,26 +323,24 @@ EOF
     
     # Create or update config file
     if [ -f "$config_file" ]; then
-        # Update existing config with the absolute path to avoid $HOME expansion issues
-        local absolute_init_path="${config_dir}/electron/init.js"
-        absolute_init_path="${absolute_init_path/#$HOME/\$HOME}" # Replace real home with $HOME variable for portability
+        # Use the sandbox path directly (not the host path)
+        local init_path="${sandbox_user_home}/.config/Claude/electron/init.js"
         
-        jq --arg initpath "$absolute_init_path" '.autoApproveMCP = true | .electronInitScript = $initpath' "$config_file" > "${config_file}.tmp" && \
+        jq --arg initpath "$init_path" '.autoApproveMCP = true | .electronInitScript = $initpath' "$config_file" > "${config_file}.tmp" && \
         mv "${config_file}.tmp" "$config_file"
     else
-        # Create new config with absolute path
-        local absolute_init_path="${config_dir}/electron/init.js"
-        absolute_init_path="${absolute_init_path/#$HOME/\$HOME}" # Replace real home with $HOME variable for portability
+        # Create new config with sandbox path
+        local init_path="${sandbox_user_home}/.config/Claude/electron/init.js"
         
         cat > "$config_file" <<EOF
 {
   "autoApproveMCP": true,
-  "electronInitScript": "${absolute_init_path}"
+  "electronInitScript": "${init_path}"
 }
 EOF
     fi
     
-    echo "MCP auto-approval configured."
+    echo "MCP auto-approval configured using sandboxed path: ${init_path}"
     return 0
 }
 

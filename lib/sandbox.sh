@@ -3,12 +3,13 @@
 
 # Get the sandbox home directory - can be used by other modules
 get_sandbox_homedir() {
-    echo "/home/$(whoami)"
+    # This now returns the consistent path inside the sandbox rather than on host
+    echo "/home/claude"
 }
 
 # Get the sandbox username
 get_sandbox_username() {
-    echo "$(whoami)"
+    echo "claude"
 }
 
 # Create a sandbox environment
@@ -25,9 +26,12 @@ create_sandbox() {
     # Create sandbox directory
     mkdir -p "$sandbox_home"
     
-    # Create fake passwd file for user mapping - keep the original user's entry
-    # Use SUDO_USER if available (running with sudo) or fall back to whoami
-    grep "^${SUDO_USER:-$(whoami)}:" /etc/passwd > "${SANDBOX_BASE}/fake_passwd.${sandbox_name}"
+    # Create fake passwd file for consistent claude user
+    grep "^${SUDO_USER:-$(whoami)}:" /etc/passwd | \
+      sed "s|^${SUDO_USER:-$(whoami)}:|claude:|" | \
+      sed "s|:${HOME}:|:/home/claude:|" > "${SANDBOX_BASE}/fake_passwd.${sandbox_name}"
+    
+    echo "Created fake passwd file with username 'claude' and home '/home/claude'"
     
     # Create initialization script
     cat > "${sandbox_home}/init.sh" <<EOF
@@ -40,6 +44,7 @@ mkdir -p ~/Downloads
 mkdir -p ~/.config/Claude
 mkdir -p ~/.config/claude-desktop
 mkdir -p ~/.local/share/applications
+mkdir -p ~/.local/bin
 
 # Confirm initialization is complete
 touch ~/.cmgr_initialized
@@ -71,7 +76,7 @@ EOF
         cat > "${sandbox_home}/.config/Claude/claude_desktop_config.json" <<EOF
 {
   "showTray": true,
-  "electronInitScript": "$HOME/.config/Claude/electron/preload.js"
+  "electronInitScript": "/home/claude/.config/Claude/electron/preload.js"
 }
 EOF
     fi
@@ -94,6 +99,19 @@ run_in_sandbox() {
         echo "Error: Sandbox '$sandbox_name' does not exist."
         return 1
     fi
+    
+    # Use a consistent fake username across all sandboxes
+    local sandbox_username="claude"
+    local sandbox_user_home="/home/${sandbox_username}"
+    
+    # Print debug information
+    echo "---- SANDBOX INFORMATION ----"
+    echo "Sandbox name: $sandbox_name"
+    echo "Host sandbox path: $sandbox_home"
+    echo "Inside sandbox path: $sandbox_user_home"
+    echo "Host user: $(whoami)"
+    echo "Sandbox user: $sandbox_username"
+    echo "----------------------------"
     
     # Handle X11 authentication for root/sudo specifically
     local xauth_file=""
@@ -121,14 +139,13 @@ run_in_sandbox() {
     # Debug info
     echo "Display info: DISPLAY=${DISPLAY:-unset}, XAUTHORITY=${XAUTHORITY:-unset}"
     
-    # Base bubblewrap command
-    local real_home_dir="$HOME"
-    
+    # Base bubblewrap command - CHANGED: use different home path inside sandbox
     local bwrap_cmd=(
         bwrap
         --proc /proc
         --tmpfs /tmp
-        --bind "${sandbox_home}" "${real_home_dir}"
+        # Map the sandbox directory to /home/claude inside the container
+        --bind "${sandbox_home}" "${sandbox_user_home}"
     )
     
     # Common read-only mounts
@@ -164,11 +181,11 @@ run_in_sandbox() {
         # For root/sudo case, we need to ensure the sandbox sees this file
         if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
             # Also bind to standard location within sandbox
-            bwrap_cmd+=(--bind "${XAUTHORITY}" "${real_home_dir}/.Xauthority")
+            bwrap_cmd+=(--bind "${XAUTHORITY}" "${sandbox_user_home}/.Xauthority")
         fi
     elif [ -f "${HOME}/.Xauthority" ]; then
         echo "Using home Xauthority file: ${HOME}/.Xauthority"
-        bwrap_cmd+=(--bind "${HOME}/.Xauthority" "${HOME}/.Xauthority")
+        bwrap_cmd+=(--bind "${HOME}/.Xauthority" "${sandbox_user_home}/.Xauthority")
     fi
     
     # Handle user runtime directory
@@ -197,30 +214,38 @@ run_in_sandbox() {
         fi
     done
     
-    # Environment variables
-    local real_home_dir="$HOME"
+    # CRITICAL: Block access to real user's home directory
+    bwrap_cmd+=(--tmpfs "${HOME}")
+    echo "Blocking access to real user home: ${HOME}"
     
+    # Environment variables
     bwrap_cmd+=(
         --clearenv
-        --setenv HOME "${real_home_dir}"
-        --setenv PATH "${real_home_dir}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
+        --setenv HOME "${sandbox_user_home}"
+        --setenv USER "${sandbox_username}"
+        --setenv LOGNAME "${sandbox_username}"
+        --setenv PATH "${sandbox_user_home}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
         --setenv DISPLAY "${DISPLAY:-:0}"
         --setenv WAYLAND_DISPLAY "${WAYLAND_DISPLAY:-}"
         --setenv DBUS_SESSION_BUS_ADDRESS "${DBUS_SESSION_BUS_ADDRESS:-}"
         --setenv TERM "${TERM}"
         --setenv COLORTERM "${COLORTERM:-}"
-        --setenv BASH_ENV "${real_home_dir}/.bashrc"
+        --setenv BASH_ENV "${sandbox_user_home}/.bashrc"
         --setenv CLAUDE_INSTANCE "${sandbox_name}"
-        --setenv CLAUDE_CONFIG_PATH "${real_home_dir}/.config/Claude/claude_desktop_config.json"
+        --setenv CLAUDE_CONFIG_PATH "${sandbox_user_home}/.config/Claude/claude_desktop_config.json"
+        # Explicitly set XDG variables to ensure all applications use the correct paths
+        --setenv XDG_CONFIG_HOME "${sandbox_user_home}/.config"
+        --setenv XDG_DATA_HOME "${sandbox_user_home}/.local/share"
+        --setenv XDG_CACHE_HOME "${sandbox_user_home}/.cache"
     )
     
     # Add X11 authentication environment variables if they exist
     if [ -n "${XAUTHORITY:-}" ]; then
-        echo "Setting XAUTHORITY=${XAUTHORITY} in sandbox"
-        bwrap_cmd+=(--setenv XAUTHORITY "${XAUTHORITY}")
+        echo "Setting XAUTHORITY=${sandbox_user_home}/.Xauthority in sandbox"
+        bwrap_cmd+=(--setenv XAUTHORITY "${sandbox_user_home}/.Xauthority")
     elif [ -f "${HOME}/.Xauthority" ]; then
-        echo "Setting XAUTHORITY=${HOME}/.Xauthority in sandbox"
-        bwrap_cmd+=(--setenv XAUTHORITY "${HOME}/.Xauthority")
+        echo "Setting XAUTHORITY=${sandbox_user_home}/.Xauthority in sandbox"
+        bwrap_cmd+=(--setenv XAUTHORITY "${sandbox_user_home}/.Xauthority")
     fi
     
     # Handle XDG_RUNTIME_DIR differently for sudo
@@ -249,6 +274,12 @@ run_in_sandbox() {
             bwrap_cmd+=(--setenv "$xvar" "${!xvar}")
         fi
     done
+    
+    # Print final command for debugging
+    echo "Running command in sandbox with the following environment:"
+    echo "HOME=${sandbox_user_home}"
+    echo "USER=${sandbox_username}"
+    echo "CLAUDE_CONFIG_PATH=${sandbox_user_home}/.config/Claude/claude_desktop_config.json"
     
     # Execute command in sandbox
     "${bwrap_cmd[@]}" "$@"

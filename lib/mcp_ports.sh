@@ -219,11 +219,14 @@ generate_mcp_server_config() {
     local base_port
     base_port=$(get_port_base "$instance_name")
     
+    # Sandbox user home path - must match the path used in sandbox.sh
+    local sandbox_user_home="/home/claude"
+    
     # Create MCP server configuration
     cat > "$output_file" << EOF
 {
   "showTray": true,
-  "electronInitScript": "\$HOME/.config/Claude/electron/preload.js",
+  "electronInitScript": "${sandbox_user_home}/.config/Claude/electron/preload.js",
   "mcpServers": {
     "filesystem": {
       "command": "npx",
@@ -238,7 +241,8 @@ generate_mcp_server_config() {
         "MCP_PORT": "$(get_tool_port "$instance_name" "filesystem")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "filesystem")",
         "MCP_BASE_PORT": "$base_port",
-        "CLAUDE_INSTANCE": "$instance_name"
+        "CLAUDE_INSTANCE": "$instance_name",
+        "HOME": "${sandbox_user_home}"
       }
     },
     "sequential-thinking": {
@@ -254,7 +258,8 @@ generate_mcp_server_config() {
         "MCP_PORT": "$(get_tool_port "$instance_name" "sequential-thinking")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "sequential-thinking")",
         "MCP_BASE_PORT": "$base_port",
-        "CLAUDE_INSTANCE": "$instance_name"
+        "CLAUDE_INSTANCE": "$instance_name",
+        "HOME": "${sandbox_user_home}" 
       }
     },
     "memory": {
@@ -270,7 +275,8 @@ generate_mcp_server_config() {
         "MCP_PORT": "$(get_tool_port "$instance_name" "memory")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "memory")",
         "MCP_BASE_PORT": "$base_port",
-        "CLAUDE_INSTANCE": "$instance_name"
+        "CLAUDE_INSTANCE": "$instance_name",
+        "HOME": "${sandbox_user_home}"
       }
     },
     "desktop-commander": {
@@ -286,7 +292,8 @@ generate_mcp_server_config() {
         "MCP_PORT": "$(get_tool_port "$instance_name" "desktop-commander")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "desktop-commander")",
         "MCP_BASE_PORT": "$base_port",
-        "CLAUDE_INSTANCE": "$instance_name"
+        "CLAUDE_INSTANCE": "$instance_name",
+        "HOME": "${sandbox_user_home}"
       }
     },
     "repl": {
@@ -302,7 +309,8 @@ generate_mcp_server_config() {
         "MCP_PORT": "$(get_tool_port "$instance_name" "repl")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "repl")",
         "MCP_BASE_PORT": "$base_port",
-        "CLAUDE_INSTANCE": "$instance_name"
+        "CLAUDE_INSTANCE": "$instance_name",
+        "HOME": "${sandbox_user_home}"
       }
     },
     "@executeautomation-playwright-mcp-server": {
@@ -318,7 +326,8 @@ generate_mcp_server_config() {
         "MCP_PORT": "$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")",
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")",
         "MCP_BASE_PORT": "$base_port",
-        "CLAUDE_INSTANCE": "$instance_name"
+        "CLAUDE_INSTANCE": "$instance_name",
+        "HOME": "${sandbox_user_home}"
       }
     }
   }
@@ -326,5 +335,6 @@ generate_mcp_server_config() {
 EOF
 
     echo "Generated MCP server configuration for instance '$instance_name' with base port $base_port"
+    echo "Using sandbox home path: ${sandbox_user_home}"
     return 0
 }
