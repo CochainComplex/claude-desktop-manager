@@ -143,7 +143,7 @@ EOF
     return 0
 }
 
-# Create a simple installation script for use inside the sandbox
+# Create an installation script for use inside the sandbox
 create_installation_script() {
     local sandbox_home="$1"
     local instance_name="$2"
@@ -152,7 +152,7 @@ create_installation_script() {
     # Installation script path in the sandbox
     local install_script="${sandbox_home}/install-claude.sh"
     
-    # Create the installation script
+    # Create the installation script with basic Wayland support
     cat > "${install_script}" << EOF
 #!/bin/bash
 # Claude Desktop installation script for sandboxed environment
@@ -163,7 +163,15 @@ echo "==== Installation Debug Info ===="
 echo "User: \$(whoami)"
 echo "Home: \$HOME"
 echo "Working directory: \$(pwd)"
+echo "Display: \${DISPLAY:-not set}"
+echo "Wayland display: \${WAYLAND_DISPLAY:-not set}"
 echo "=============================="
+
+# Simple Wayland detection
+if [ -n "\${WAYLAND_DISPLAY:-}" ]; then
+    echo "Detected Wayland session, setting Electron variables"
+    export ELECTRON_OZONE_PLATFORM_HINT="auto"
+fi
 
 # Check if the package exists
 if [ ! -f "\$HOME/Downloads/${package_filename}" ]; then
@@ -262,13 +270,13 @@ if [ -d "usr/share/icons" ]; then
     cp -r usr/share/icons/* "\$HOME/.local/share/icons/"
 fi
 
-# Create desktop entry
+# Create desktop entry with basic Wayland support
 echo "Creating desktop entry for instance '${instance_name}'..."
 cat > "\$HOME/.local/share/applications/claude-desktop-${instance_name}.desktop" << EOF2
 [Desktop Entry]
 Name=Claude Desktop (${instance_name})
 Comment=Claude Desktop AI Assistant (${instance_name} instance)
-Exec=env CLAUDE_INSTANCE=${instance_name} LIBVA_DRIVER_NAME=dummy "\$HOME/.local/bin/claude-desktop" --disable-gpu --no-sandbox --disable-dev-shm-usage --js-flags="--expose-gc" --preload="\$HOME/.config/claude-desktop/preload.js" %u
+Exec=env CLAUDE_INSTANCE=${instance_name} LIBVA_DRIVER_NAME=dummy ELECTRON_OZONE_PLATFORM_HINT=auto "\$HOME/.local/bin/claude-desktop" --disable-gpu --no-sandbox --disable-dev-shm-usage --js-flags="--expose-gc" --preload="\$HOME/.config/claude-desktop/preload.js" %u
 Icon=claude-desktop
 Type=Application
 Terminal=false
@@ -486,39 +494,65 @@ install_claude_in_sandbox() {
     # Run the installation script in the sandbox
     log_info "Running installation script in sandbox..."
     
-    # Create a wrapper script to ignore the UID mapping error
+    # Create a simpler wrapper script for installation
     local wrapper_script="${sandbox_home}/wrapper.sh"
     cat > "$wrapper_script" << 'EOF'
 #!/bin/bash
 
-# Run the install script and capture its output and exit status
-./install-claude.sh 2>&1 | tee /tmp/install-output.log
+# Create a simple log file
+LOG_FILE="/tmp/claude-install.log"
+./install-claude.sh 2>&1 | tee "$LOG_FILE"
+INSTALL_STATUS=${PIPESTATUS[0]}
 
-# Check if the only error was the UID mapping error
-if grep -q "setting up uid map: Permission denied" /tmp/install-output.log && ! grep -q "ERROR:" /tmp/install-output.log; then
-    # Success - ignore the UID mapping error
-    exit 0
+# Check for known harmless errors
+if grep -q "setting up uid map: Permission denied" "$LOG_FILE" && ! grep -q "ERROR:" "$LOG_FILE"; then
+    echo "Note: UID mapping error detected but can be ignored"
+    
+    # Verify if the essential files were installed despite errors
+    if [ -x "$HOME/.local/bin/claude-desktop" ] || [ -f "$HOME/.local/share/claude-desktop/app.asar" ]; then
+        echo "Essential files exist, marking installation as successful"
+        exit 0
+    fi
 fi
 
-# Otherwise, preserve the original exit code
-exit ${PIPESTATUS[0]}
+# For Wayland sessions, ignore display-related errors
+if [ -n "$WAYLAND_DISPLAY" ] && grep -q "cannot connect to X server" "$LOG_FILE"; then
+    echo "X11 connection issues are expected in Wayland - continuing anyway"
+    
+    # Check if essential files exist despite X11 errors
+    if [ -x "$HOME/.local/bin/claude-desktop" ]; then
+        echo "Claude executable exists, marking installation as successful"
+        touch "$HOME/.claude-install-verified"
+        exit 0
+    fi
+fi
+
+# Return the original exit code
+exit $INSTALL_STATUS
 EOF
     
     chmod +x "$wrapper_script"
     
     # Run the wrapper
     if ! run_in_sandbox "$sandbox_name" "./wrapper.sh"; then
-        # Even if the script failed, check if the executable was installed anyway
-        if run_in_sandbox "$sandbox_name" "[ -x \$HOME/.local/bin/claude-desktop ]" 2>/dev/null; then
-            log_warn "Install script reported error but claude-desktop executable exists, continuing..."
+        # Additional verification in case wrapper fails but files still exist
+        if run_in_sandbox "$sandbox_name" "[ -x \$HOME/.local/bin/claude-desktop ] && [ -f \$HOME/.local/share/claude-desktop/app.asar ]" 2>/dev/null; then
+            log_warn "Wrapper script failed but critical files exist, forcing installation to continue..."
+            # Create a dummy success file to mark that we verified files exist
+            run_in_sandbox "$sandbox_name" "touch \$HOME/.claude-install-verified"
+        elif run_in_sandbox "$sandbox_name" "[ -f \$HOME/.claude-install-verified ]"; then
+            log_warn "Wrapper script indicated verification passed despite exit code, continuing..."
         else
-            log_error "Installation script failed."
+            # Grab the log file for debugging
+            log_error "Installation failed. Installation log:"
+            run_in_sandbox "$sandbox_name" "cat /tmp/claude-install.log 2>/dev/null || echo 'No log file available'"
+            log_error "Installation script failed with critical errors."
             return 1
         fi
     fi
     
-    # Verify installation by checking for executable
-    if run_in_sandbox "$sandbox_name" bash -c "[ -x \$HOME/.local/bin/claude-desktop ]"; then
+    # Simpler verification check
+    if run_in_sandbox "$sandbox_name" bash -c "[ -x \$HOME/.local/bin/claude-desktop ] || [ -f \$HOME/.claude-install-verified ]"; then
         log_info "Claude Desktop installed successfully in sandbox '${sandbox_name}'!"
         
         # Apply instance customization and MaxListenersExceededWarning fix

@@ -123,31 +123,46 @@ run_in_sandbox() {
     echo "Sandbox user: $sandbox_username"
     echo "----------------------------"
     
-    # Handle X11 authentication for root/sudo specifically
-    local xauth_file=""
-    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
-        # When running as root, we need to create a temporary Xauthority that root can use
-        # Create it in SANDBOX_BASE so it's accessible to both host and sandbox
-        mkdir -p "${SANDBOX_BASE}/tmp"
-        xauth_file="${SANDBOX_BASE}/tmp/xauth.$(date +%s).$$"
-        
-        # Copy the original user's xauth data
+    # Check if running in Wayland session
+    local is_wayland=false
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        is_wayland=true
+        echo "Detected Wayland session (WAYLAND_DISPLAY=${WAYLAND_DISPLAY})"
+    fi
+
+    # Create tmp directory for auth files
+    mkdir -p "${SANDBOX_BASE}/tmp"
+    
+    # Handle X11 authentication with Wayland awareness
+    local xauth_file="${SANDBOX_BASE}/tmp/xauth.$(date +%s).$$"
+    
+    if [ "$is_wayland" = true ]; then
+        # For Wayland: create a dummy auth file since .Xauthority typically doesn't exist
+        echo "Using Wayland session, creating dummy X auth file"
+        touch "$xauth_file"
+    else
+        # For X11: try to use existing auth file or create one
         if [ -n "${XAUTHORITY:-}" ] && [ -f "${XAUTHORITY}" ]; then
-            cp "${XAUTHORITY}" "$xauth_file"
-        elif [ -f "/home/${SUDO_USER}/.Xauthority" ]; then
-            cp "/home/${SUDO_USER}/.Xauthority" "$xauth_file"
+            echo "Using XAUTHORITY from environment: ${XAUTHORITY}"
+            cp "${XAUTHORITY}" "$xauth_file" 2>/dev/null || touch "$xauth_file"
+        elif [ -f "${HOME}/.Xauthority" ]; then
+            echo "Using .Xauthority from home: ${HOME}/.Xauthority"
+            cp "${HOME}/.Xauthority" "$xauth_file" 2>/dev/null || touch "$xauth_file"
+        elif [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ -f "/home/${SUDO_USER}/.Xauthority" ]; then
+            echo "Using .Xauthority from sudo user's home"
+            cp "/home/${SUDO_USER}/.Xauthority" "$xauth_file" 2>/dev/null || touch "$xauth_file"
         else
-            # Try to extract the cookie for the current display
-            su - "${SUDO_USER}" -c "xauth extract $xauth_file $DISPLAY" || true
+            # No auth file found, create empty one
+            echo "No Xauthority file found, creating empty one"
+            touch "$xauth_file"
         fi
-        
-        # Make sure it's accessible
-        chmod 644 "$xauth_file"
-        export XAUTHORITY="$xauth_file"
     fi
     
-    # Debug info
-    echo "Display info: DISPLAY=${DISPLAY:-unset}, XAUTHORITY=${XAUTHORITY:-unset}"
+    # Ensure file exists and has right permissions
+    chmod 644 "$xauth_file" 2>/dev/null
+    export XAUTHORITY="$xauth_file"
+    
+    echo "Display info: DISPLAY=${DISPLAY:-:0}, XAUTHORITY=${XAUTHORITY}, WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-unset}"
     
     # Base bubblewrap command - CHANGED: use different home path inside sandbox
     local bwrap_cmd=(
@@ -174,8 +189,17 @@ run_in_sandbox() {
     # Bind fake passwd file
     bwrap_cmd+=(--ro-bind "${SANDBOX_BASE}/fake_passwd.${sandbox_name}" /etc/passwd)
     
-    # User-specific mounts for GUI apps
+    # User-specific mounts for GUI apps - support both X11 and Wayland
     bwrap_cmd+=(--bind /tmp/.X11-unix /tmp/.X11-unix)
+    
+    # Add Wayland socket if available
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+        wayland_path="${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}"
+        if [ -S "$wayland_path" ]; then
+            echo "Binding Wayland socket: $wayland_path"
+            bwrap_cmd+=(--bind "$wayland_path" "$wayland_path")
+        fi
+    fi
     
     # Bind our custom temporary directory to ensure scripts can access it
     if [ -d "${SANDBOX_BASE}/tmp" ]; then
