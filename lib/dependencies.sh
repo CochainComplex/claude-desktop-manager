@@ -29,73 +29,223 @@ check_userns_enabled() {
     fi
 }
 
-# Enable unprivileged user namespaces if possible
+# Enable unprivileged user namespaces with flexible authentication methods
 enable_userns() {
+    local parameter="kernel.unprivileged_userns_clone"
+    
+    # Check if already enabled
     if check_userns_enabled; then
         echo "✓ Unprivileged user namespaces already enabled"
         return 0
     fi
     
-    echo "Attempting to enable unprivileged user namespaces..."
+    echo "Unprivileged user namespaces are currently disabled"
+    echo "This feature requires elevated privileges to enable"
     
-    # Create a temporary script to run with sudo
-    local tmp_script="${CMGR_HOME:-/tmp}/enable_userns.sh"
-    mkdir -p "$(dirname "$tmp_script")"
+    # Determine available authentication mechanism
+    local auth_methods=()
+    local auth_descriptions=()
     
+    # Check for PolicyKit (graphical authentication)
+    if command -v pkexec >/dev/null 2>&1; then
+        auth_methods+=("pkexec")
+        auth_descriptions+=("PolicyKit graphical authentication")
+    fi
+    
+    # Check for sudo
+    if command -v sudo >/dev/null 2>&1; then
+        auth_methods+=("sudo")
+        auth_descriptions+=("sudo terminal authentication")
+    fi
+    
+    # Check for doas (OpenBSD's sudo alternative)
+    if command -v doas >/dev/null 2>&1; then
+        auth_methods+=("doas")
+        auth_descriptions+=("doas terminal authentication")
+    fi
+    
+    # Check if we have any authentication methods
+    if [ ${#auth_methods[@]} -eq 0 ]; then
+        echo "No supported authentication mechanism found (pkexec, sudo, or doas)"
+        echo "Cannot enable user namespaces without authentication"
+        provide_manual_instructions
+        return 1
+    fi
+    
+    # Show available authentication methods
+    echo "Available authentication methods:"
+    for i in "${!auth_methods[@]}"; do
+        echo "  $((i+1)). ${auth_descriptions[$i]}"
+    done
+    
+    # Use the first available method by default
+    local auth_method="${auth_methods[0]}"
+    
+    # If we have multiple methods, let the user choose
+    if [ ${#auth_methods[@]} -gt 1 ]; then
+        echo
+        echo "Select authentication method (1-${#auth_methods[@]}, default: 1):"
+        read -r auth_choice
+        
+        # If user provided a choice, use it
+        if [ -n "$auth_choice" ] && [ "$auth_choice" -le "${#auth_methods[@]}" ] && [ "$auth_choice" -ge 1 ]; then
+            auth_method="${auth_methods[$((auth_choice-1))]}"
+        fi
+    fi
+    
+    echo "Using ${auth_method} for authentication..."
+    
+    # Create temporary directory for script
+    local tmp_dir="${CMGR_HOME:-/tmp}/userns_config"
+    mkdir -p "$tmp_dir"
+    local tmp_script="${tmp_dir}/enable_userns.sh"
+    
+    # Create the script to be executed with elevated privileges
     cat > "$tmp_script" << 'EOF'
 #!/bin/bash
+# Script to enable unprivileged user namespaces
+
 set -e
 
-# Check if we're running as root
-if [ "$(id -u)" -ne 0 ]; then
-    echo "This script must be run as root"
+# Detect init system
+init_system="unknown"
+if [ -d "/run/systemd/system" ]; then
+    init_system="systemd"
+elif [ -f "/etc/init.d/cron" ] && [ ! -h "/etc/init.d/cron" ]; then
+    init_system="sysvinit"
+elif [ -f "/sbin/openrc" ]; then
+    init_system="openrc"
+fi
+
+echo "Detected init system: $init_system"
+
+# Set kernel parameter for current session
+if ! sysctl -w kernel.unprivileged_userns_clone=1; then
+    echo "Failed to set kernel parameter"
     exit 1
 fi
 
-# Enable unprivileged user namespaces
-sysctl -w kernel.unprivileged_userns_clone=1
+echo "✓ Successfully enabled unprivileged user namespaces for current session"
 
-# Make it permanent
-if [ -d "/etc/sysctl.d" ]; then
-    echo "kernel.unprivileged_userns_clone = 1" > /etc/sysctl.d/00-local-userns.conf
-    echo "✓ Permanently enabled unprivileged user namespaces"
+# Function to make the change permanent
+make_permanent() {
+    # Create conf file in the appropriate location for the distro
+    if [ -d "/etc/sysctl.d" ]; then
+        echo "kernel.unprivileged_userns_clone = 1" > /etc/sysctl.d/99-userns.conf
+        echo "✓ Created persistent configuration in /etc/sysctl.d/99-userns.conf"
+    elif [ -f "/etc/sysctl.conf" ]; then
+        # Check if the setting already exists in sysctl.conf
+        if grep -q "^kernel.unprivileged_userns_clone" /etc/sysctl.conf; then
+            # Update existing setting
+            sed -i 's/^kernel.unprivileged_userns_clone.*/kernel.unprivileged_userns_clone = 1/' /etc/sysctl.conf
+        else
+            # Add new setting
+            echo "kernel.unprivileged_userns_clone = 1" >> /etc/sysctl.conf
+        fi
+        echo "✓ Updated /etc/sysctl.conf with unprivileged user namespaces setting"
+    else
+        echo "⚠️ Could not find a suitable location for persistent configuration"
+        return 1
+    fi
+    
+    # For systemd systems, also enable through systemd-sysctl
+    if [ "$init_system" = "systemd" ]; then
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl restart systemd-sysctl.service 2>/dev/null || true
+        fi
+    fi
+    
+    # Verify the setting is applied
+    if [ "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null)" = "1" ]; then
+        echo "✓ Verified setting is active"
+        return 0
+    else
+        echo "⚠️ Setting not applied correctly"
+        return 1
+    fi
+}
+
+# Ask if the user wants to make the change permanent
+if [ "$1" = "--permanent" ]; then
+    make_permanent
+    exit $?
 else
-    echo "kernel.unprivileged_userns_clone = 1" >> /etc/sysctl.conf
-    echo "✓ Added setting to /etc/sysctl.conf"
-fi
-
-# Check if we succeeded
-if [ "$(sysctl -n kernel.unprivileged_userns_clone)" = "1" ]; then
-    echo "✓ Successfully enabled unprivileged user namespaces"
     exit 0
-else
-    echo "Failed to enable unprivileged user namespaces"
-    exit 1
 fi
 EOF
     
+    # Make the script executable
     chmod +x "$tmp_script"
     
-    # Try to run with sudo
-    if command -v sudo &>/dev/null; then
-        echo "Running with sudo to enable unprivileged user namespaces"
-        if sudo "$tmp_script"; then
+    # Execute the script with the chosen authentication method
+    if "$auth_method" "$tmp_script"; then
+        echo "✓ Successfully enabled unprivileged user namespaces for this session"
+        
+        # Ask if user wants to make the change permanent
+        echo
+        echo "Would you like to make this change permanent? (y/n)"
+        read -r make_permanent
+        
+        if [[ "$make_permanent" =~ ^[Yy] ]]; then
+            echo "Making change permanent (requires authentication)..."
+            if "$auth_method" "$tmp_script" "--permanent"; then
+                echo "✓ Change is now permanent and will persist across reboots"
+            else
+                echo "⚠️ Failed to make change permanent"
+                echo "Unprivileged user namespaces are still enabled for this session"
+            fi
+        else
+            echo "✓ User namespaces enabled for this session only"
+            echo "Note: You'll need to enable this feature again after reboot"
+        fi
+        
+        # Verify the current session has the feature enabled
+        if check_userns_enabled; then
+            # Clean up
             rm -f "$tmp_script"
+            
+            # Inform the user that their current processes can use this feature
+            echo
+            echo "✓ All current and future processes can now use unprivileged user namespaces"
+            
+            # For sandboxed applications, recommend restarting them
+            echo "Note: Any existing Claude Desktop instances should be restarted"
+            echo "to take advantage of the newly enabled feature."
+            
             return 0
+        else
+            echo "⚠️ Something went wrong. User namespaces appear to be disabled."
+            # Clean up
+            rm -f "$tmp_script"
+            provide_manual_instructions
+            return 1
         fi
     else
-        echo "Cannot enable unprivileged user namespaces: sudo not available"
+        echo "❌ Authentication failed or user canceled the operation"
+        # Clean up
+        rm -f "$tmp_script"
+        provide_manual_instructions
+        return 1
     fi
-    
-    # Clean up
-    rm -f "$tmp_script"
-    
-    # Print alternative instructions
-    echo "Please run the following command with root privileges to enable unprivileged user namespaces:"
+}
+
+# Provide manual instructions for enabling user namespaces
+provide_manual_instructions() {
+    echo
+    echo "Manual instructions to enable unprivileged user namespaces:"
+    echo
+    echo "For immediate effect (until next reboot):"
     echo "  sudo sysctl -w kernel.unprivileged_userns_clone=1"
-    echo "  echo 'kernel.unprivileged_userns_clone = 1' | sudo tee /etc/sysctl.d/00-local-userns.conf"
-    
-    return 1
+    echo
+    echo "To make the change permanent:"
+    echo "  echo 'kernel.unprivileged_userns_clone = 1' | sudo tee /etc/sysctl.d/99-userns.conf"
+    echo "  sudo sysctl --system"
+    echo
+    echo "Using kernel parameter (if using systemd-boot):"
+    echo "  1. Edit your loader entry in /boot/loader/entries/..."
+    echo "  2. Add 'sysctl.kernel.unprivileged_userns_clone=1' to the options line"
+    echo "  3. Reboot your system"
+    echo
 }
 
 # Check all required dependencies

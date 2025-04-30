@@ -814,18 +814,53 @@ cmd_help() {
 cmd_enable_userns() {
     echo "Checking and enabling unprivileged user namespaces..."
     
+    # Display information about why this is needed
+    echo
+    echo "About unprivileged user namespaces:"
+    echo "- This feature allows normal users to create sandboxed environments"
+    echo "- It's needed for proper isolation of Claude Desktop instances"
+    echo "- Without it, you may see 'setting up uid map: Permission denied' errors"
+    echo "- The sandbox will still work, but with less isolation security"
+    echo
+    
     if check_userns_enabled; then
         echo "✓ Unprivileged user namespaces are already enabled"
+        echo "Sandboxing should work with full capabilities"
     else
         echo "Unprivileged user namespaces are not enabled."
+        echo "You'll be prompted for authentication to enable this feature."
+        echo
+        
         if enable_userns; then
             echo "✓ Successfully enabled unprivileged user namespaces"
+            echo "Sandboxing will now work with full capabilities"
+            
+            # Provide information about instance restart if any are running
+            if [ -f "${CMGR_REGISTRY}" ]; then
+                # Check if any instances are running
+                local running_instances=$(jq -r '.instances | to_entries[] | select(.value.running == true) | .key' "${CMGR_REGISTRY}" 2>/dev/null)
+                if [ -n "$running_instances" ]; then
+                    echo
+                    echo "Note: You have running Claude Desktop instances that should be restarted"
+                    echo "to benefit from the improved sandboxing:"
+                    echo "$running_instances" | while read -r instance; do
+                        echo "  cmgr stop $instance && cmgr start $instance"
+                    done
+                    echo
+                fi
+            fi
         else
             echo "❌ Failed to enable unprivileged user namespaces."
-            echo "Some features may not work correctly without user namespaces."
-            echo "You may see 'setting up uid map: Permission denied' errors."
-            echo "You can try running 'sudo sysctl -w kernel.unprivileged_userns_clone=1' manually."
+            echo "Claude Desktop Manager will continue to work, but with limited sandbox isolation."
+            echo "You may see 'setting up uid map: Permission denied' errors, which can be ignored."
         fi
+    fi
+    
+    # Check if bubblewrap is using --no-userns flag anywhere
+    if grep -q -- "--no-userns" "${SCRIPT_DIR}/lib/sandbox.sh" 2>/dev/null; then
+        echo
+        echo "Warning: The sandbox code is using '--no-userns' flag which disables user namespace support."
+        echo "Consider updating the sandbox code to remove this flag now that user namespaces are enabled."
     fi
     
     return 0

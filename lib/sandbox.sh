@@ -225,29 +225,45 @@ run_in_sandbox() {
     done
     
     # CRITICAL: Block access to real user's home directory - Use multiple approaches to ensure blocking
-    # First, mount tmpfs over the real home
+    # First, mount tmpfs over the real home - this is the most important protection
     bwrap_cmd+=(--tmpfs "${HOME}")
+    echo "Blocking access to real home: ${HOME}"
     
     # Get current username dynamically
     local current_user="${SUDO_USER:-$(whoami)}"
     
-    # Also try to block direct path to user home
+    # Block access to standard home directory paths
+    # This handles cases where $HOME might not be in /home/username (non-standard configurations)
     if [ "${HOME}" != "/home/${current_user}" ] && [ -d "/home/${current_user}" ]; then
         bwrap_cmd+=(--tmpfs "/home/${current_user}")
+        echo "Blocking standard home path: /home/${current_user}"
     fi
     
-    # Make sure all known paths to the real home are blocked
-    for username in "${current_user}" root; do
-        if [ -d "/home/$username" ] && [ "/home/$username" != "${sandbox_user_home}" ]; then
-            bwrap_cmd+=(--tmpfs "/home/$username")
-            echo "Blocking access to $username home: /home/$username"
+    # Block various possible home directory paths
+    # This handles both standard and non-standard home directory configurations
+    for dir in "/home" "/root" "/var/lib" "/opt/home"; do
+        if [ -d "$dir" ] && [[ "$dir" != "${sandbox_user_home}"* ]]; then
+            # If HOME is in this directory, make sure we block the specific directory
+            if [[ "${HOME}" == "${dir}/"* ]]; then
+                local real_home_dir="${HOME}"
+                bwrap_cmd+=(--tmpfs "${real_home_dir}")
+                echo "Blocking real home directory: ${real_home_dir}"
+            fi
+            
+            # Block user-specific directories
+            if [ -d "${dir}/${current_user}" ] && [ "${dir}/${current_user}" != "${sandbox_user_home}" ]; then
+                bwrap_cmd+=(--tmpfs "${dir}/${current_user}")
+                echo "Blocking user directory: ${dir}/${current_user}"
+            fi
         fi
     done
     
-    # Block common user homes for extra security
-    for username in "ubuntu" "debian" "linuxbrew"; do
+    # Block known common usernames for extra security
+    for username in "${current_user}" root ubuntu debian linuxbrew admin ec2-user vagrant; do
+        # Only block if the path exists and is not our sandbox home
         if [ -d "/home/$username" ] && [ "/home/$username" != "${sandbox_user_home}" ]; then
             bwrap_cmd+=(--tmpfs "/home/$username")
+            echo "Blocking potential user home: /home/$username"
         fi
     done
     
