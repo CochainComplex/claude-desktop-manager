@@ -58,28 +58,16 @@ configure_global_shortcut() {
     
     echo "Configuring global shortcut for instance '$instance_name' to '$shortcut'..."
     
-    # Config file is inside the sandbox but from the user's perspective
-    # it should be at the regular ~/.config path
-    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
-    local config_dir="${sandbox_home}/.config/Claude"
-    local config_file="${config_dir}/claude_desktop_config.json"
+    # Get config file using utility function
+    local config_file="$(get_sandbox_config_file "$instance_name")"
     
-    # Ensure config directory exists
-    mkdir -p "${config_dir}"
+    # Use update_config_file utility function
+    local json_expr=".globalShortcut = \"$shortcut\""
+    local default_content="{
+  \"globalShortcut\": \"$shortcut\"
+}"
     
-    # Create or update config file
-    if [ -f "$config_file" ]; then
-        # Update existing config
-        jq --arg shortcut "$shortcut" '.globalShortcut = $shortcut' "$config_file" > "${config_file}.tmp" && \
-        mv "${config_file}.tmp" "$config_file"
-    else
-        # Create new config
-        cat > "$config_file" <<EOF
-{
-  "globalShortcut": "$shortcut"
-}
-EOF
-    fi
+    update_config_file "$config_file" "$json_expr" "$default_content"
     
     echo "Global shortcut configured."
     return 0
@@ -92,12 +80,8 @@ configure_tray_icon() {
     
     echo "Configuring tray icon visibility for instance '$instance_name' to '$visibility'..."
     
-    # Get config file path inside sandbox
-    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
-    local config_file="${sandbox_home}/.config/Claude/claude_desktop_config.json"
-    
-    # Ensure config directory exists
-    mkdir -p "$(dirname "$config_file")"
+    # Get config file using utility function
+    local config_file="$(get_sandbox_config_file "$instance_name")"
     
     # Determine value based on visibility setting
     local show_tray="true"
@@ -105,19 +89,13 @@ configure_tray_icon() {
         show_tray="false"
     fi
     
-    # Create or update config file
-    if [ -f "$config_file" ]; then
-        # Update existing config
-        jq --arg show "$show_tray" '.showTray = ($show == "true")' "$config_file" > "${config_file}.tmp" && \
-        mv "${config_file}.tmp" "$config_file"
-    else
-        # Create new config
-        cat > "$config_file" <<EOF
-{
-  "showTray": $show_tray
-}
-EOF
-    fi
+    # Use update_config_file utility function
+    local json_expr=".showTray = ($show_tray)"
+    local default_content="{
+  \"showTray\": $show_tray
+}"
+    
+    update_config_file "$config_file" "$json_expr" "$default_content"
     
     echo "Tray icon visibility configured."
     return 0
@@ -184,13 +162,11 @@ configure_mcp_ports() {
     
     echo "Configuring unique MCP ports for instance '$instance_name'..."
     
-    # Get sandbox directory
-    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
-    local config_dir="${sandbox_home}/.config/Claude"
-    local config_file="${config_dir}/claude_desktop_config.json"
+    # Get sandbox config paths using utility functions
+    local config_file="$(get_sandbox_config_file "$instance_name")"
     
     # Ensure config directory exists
-    mkdir -p "${config_dir}"
+    mkdir -p "$(dirname "$config_file")"
     
     # Load port management module if not already loaded
     if ! command -v get_port_base &>/dev/null; then
@@ -230,10 +206,8 @@ reset_mcp_ports() {
     # Release allocated port range
     release_port_range "$instance_name"
     
-    # Get sandbox directory
-    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
-    local config_dir="${sandbox_home}/.config/Claude"
-    local config_file="${config_dir}/claude_desktop_config.json"
+    # Get config file using utility function
+    local config_file="$(get_sandbox_config_file "$instance_name")"
     
     # Check if config file exists
     if [ -f "$config_file" ]; then
@@ -252,11 +226,10 @@ configure_mcp_auto_approve() {
     
     echo "Configuring MCP auto-approval for instance '$instance_name'..."
     
-    # Get sandbox directory and paths on host
-    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
-    local config_dir="${sandbox_home}/.config/Claude"
-    local config_file="${config_dir}/claude_desktop_config.json"
-    local electron_dir="${config_dir}/electron"
+    # Get sandbox directory and paths using utility functions
+    local config_dir="$(get_sandbox_config_path "$instance_name")"
+    local config_file="$(get_sandbox_config_file "$instance_name")"
+    local electron_dir="$(get_sandbox_electron_path "$instance_name")"
     
     # Sandbox user home path - must match the path used in sandbox.sh
     local sandbox_user_home="/home/claude"
@@ -265,8 +238,80 @@ configure_mcp_auto_approve() {
     mkdir -p "${config_dir}"
     mkdir -p "${electron_dir}"
     
-    # Copy the MCP auto-approve script to the instance
-    cp "${SCRIPT_DIR}/templates/mcp-auto-approve.js" "${electron_dir}/"
+    # Get template directory using utility function
+    local template_dir="$(find_template_dir)"
+    if [ -z "$template_dir" ]; then
+        echo "Warning: Could not find templates directory, using fallbacks"
+        template_dir="${SCRIPT_DIR}/../templates"
+    fi
+    
+    # Auto approve JS file content as fallback
+    local auto_approve_js_content='// Auto approve script for MCP tools - Created by Claude Desktop Manager
+// Derived from the original emsi/claude-desktop project
+
+// Array of trusted tool names.
+// If empty ALL tools are accepted!
+const trustedTools = [
+/*
+    "list-allowed-directories",
+    "list-denied-directories",
+    "ls"
+*/
+];
+
+// Cooldown tracking
+let lastClickTime = 0;
+const COOLDOWN_MS = 1000; // 1 second cooldown
+
+const observer = new MutationObserver((mutations) => {
+    // Check if we're still in cooldown
+    const now = Date.now();
+    if (now - lastClickTime < COOLDOWN_MS) {
+        console.log("🕒 Still in cooldown period, skipping...");
+        return;
+    }
+
+    console.log("🔍 Checking mutations...");
+    
+    const dialog = document.querySelector("[role=\"dialog\"]");
+    if (!dialog) return;
+
+    const buttonWithDiv = dialog.querySelector("button div");
+    if (!buttonWithDiv) return;
+
+    const toolText = buttonWithDiv.textContent;
+    if (!toolText) return;
+
+    console.log("📝 Found tool request:", toolText);
+    
+    const toolName = toolText.match(/Run (\\S+) from/)?.[1];
+    if (!toolName) return;
+
+    console.log("🛠️ Tool name:", toolName);
+    
+    if (trustedTools.length === 0 || trustedTools.includes(toolName)) {
+        const allowButton = Array.from(dialog.querySelectorAll("button"))
+            .find(button => button.textContent.includes("Allow for This Chat"));
+        
+        if (allowButton) {
+            console.log("🚀 Auto-approving tool:", toolName);
+            lastClickTime = now; // Set cooldown
+            allowButton.click();
+        }
+    } else {
+        console.log("❌ Tool not in trusted list:", toolName);
+    }
+});
+
+// Start observing
+console.log("👀 Starting observer for trusted tools:", trustedTools);
+observer.observe(document.body, {
+    childList: true,
+    subtree: true
+});'
+    
+    # Copy or create the auto-approve script using utility function
+    copy_or_create_template "${template_dir}/mcp-auto-approve.js" "${electron_dir}/mcp-auto-approve.js" "$auto_approve_js_content" "auto-approve script"
     
     # Create init script to inject the auto-approver
     cat > "${electron_dir}/init.js" <<EOF
@@ -321,24 +366,15 @@ try {
 }
 EOF
     
-    # Create or update config file
-    if [ -f "$config_file" ]; then
-        # Use the sandbox path directly (not the host path)
-        local init_path="${sandbox_user_home}/.config/Claude/electron/init.js"
-        
-        jq --arg initpath "$init_path" '.autoApproveMCP = true | .electronInitScript = $initpath' "$config_file" > "${config_file}.tmp" && \
-        mv "${config_file}.tmp" "$config_file"
-    else
-        # Create new config with sandbox path
-        local init_path="${sandbox_user_home}/.config/Claude/electron/init.js"
-        
-        cat > "$config_file" <<EOF
-{
-  "autoApproveMCP": true,
-  "electronInitScript": "${init_path}"
-}
-EOF
-    fi
+    # Update config file using utility functions
+    local init_path="${sandbox_user_home}/.config/Claude/electron/init.js"
+    local json_expr=".autoApproveMCP = true | .electronInitScript = \"$init_path\""
+    local default_content="{
+  \"autoApproveMCP\": true,
+  \"electronInitScript\": \"$init_path\"
+}"
+    
+    update_config_file "$config_file" "$json_expr" "$default_content"
     
     echo "MCP auto-approval configured using sandboxed path: ${init_path}"
     return 0
@@ -351,26 +387,16 @@ configure_mcp_server() {
     
     echo "Configuring MCP server for instance '$instance_name' to '$server_url'..."
     
-    # Get config file path inside sandbox
-    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
-    local config_file="${sandbox_home}/.config/Claude/claude_desktop_config.json"
+    # Get config file using utility function
+    local config_file="$(get_sandbox_config_file "$instance_name")"
     
-    # Ensure config directory exists
-    mkdir -p "$(dirname "$config_file")"
+    # Use update_config_file utility function
+    local json_expr=".mcpServerURL = \"$server_url\""
+    local default_content="{
+  \"mcpServerURL\": \"$server_url\"
+}"
     
-    # Create or update config file
-    if [ -f "$config_file" ]; then
-        # Update existing config
-        jq --arg url "$server_url" '.mcpServerURL = $url' "$config_file" > "${config_file}.tmp" && \
-        mv "${config_file}.tmp" "$config_file"
-    else
-        # Create new config
-        cat > "$config_file" <<EOF
-{
-  "mcpServerURL": "$server_url"
-}
-EOF
-    fi
+    update_config_file "$config_file" "$json_expr" "$default_content"
     
     echo "MCP server configured."
     return 0
@@ -387,9 +413,9 @@ import_mcp_config() {
         return 1
     fi
     
-    local target_sandbox="${SANDBOX_BASE}/${instance_name}"
-    local target_config_dir="${target_sandbox}/.config/Claude"
-    local target_config_file="${target_config_dir}/claude_desktop_config.json"
+    # Get config paths using utility functions
+    local target_config_dir="$(get_sandbox_config_path "$instance_name")"
+    local target_config_file="$(get_sandbox_config_file "$instance_name")"
     
     # Ensure target config directory exists
     mkdir -p "${target_config_dir}"
@@ -406,7 +432,7 @@ import_mcp_config() {
             echo "Error: Source instance '$source' does not exist."
             return 1
         fi
-        source_config="${SANDBOX_BASE}/${source}/.config/Claude/claude_desktop_config.json"
+        source_config="$(get_sandbox_config_file "$source")"
         echo "Importing MCP configuration from instance '$source'..."
     fi
     

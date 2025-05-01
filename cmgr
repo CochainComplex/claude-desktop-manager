@@ -16,6 +16,7 @@ if [ ! -d "${SCRIPT_DIR}/templates" ]; then
 fi
 
 # Load libraries
+source "${SCRIPT_DIR}/lib/utils.sh"       # Load utilities first
 source "${SCRIPT_DIR}/lib/dependencies.sh"
 source "${SCRIPT_DIR}/lib/sandbox.sh"
 source "${SCRIPT_DIR}/lib/installer.sh"
