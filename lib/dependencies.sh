@@ -248,51 +248,74 @@ provide_manual_instructions() {
     echo
 }
 
-# Check all required dependencies
+# Check all required dependencies - consolidated approach
 check_dependencies() {
     local missing_deps=()
     
-    # Essential dependencies
-    if ! check_command "bwrap"; then
-        missing_deps+=("bubblewrap")
-    fi
+    # Map of dependency types and their associated packages
+    local -A dep_map=(
+        # Basic dependencies always needed
+        ["bubblewrap"]="bubblewrap"
+        ["jq"]="jq"
+        ["git"]="git"
+        
+        # Build and package dependencies
+        ["7z"]="p7zip-full"
+        ["wget"]="wget"
+        ["wrestool"]="icoutils"
+        ["icotool"]="icoutils"
+        ["convert"]="imagemagick"
+        ["dpkg-deb"]="dpkg-dev"
+        
+        # Runtime dependencies
+        ["electron"]="electron"
+        ["node"]="nodejs"
+        ["npm"]="npm"
+    )
     
-    if ! check_command "jq"; then
-        missing_deps+=("jq")
-    fi
+    # Check basic dependencies by default
+    local basic_deps=("bubblewrap" "jq" "git")
     
-    if ! check_command "git"; then
-        missing_deps+=("git")
-    fi
+    # Build dependencies needed for package creation
+    local build_deps=("7z" "wget" "wrestool" "icotool" "dpkg-deb")
     
-    # Only needed for building/installing
+    # Runtime dependencies needed for running Claude
+    local runtime_deps=("electron" "node" "npm")
+    
+    # Determine which dependencies to check based on check_type
     local check_type="${1:-basic}"
+    local deps_to_check=("${basic_deps[@]}")
+    
     if [ "$check_type" = "full" ]; then
-        if ! check_command "p7zip"; then
-            missing_deps+=("p7zip-full")
-        fi
-        
-        if ! check_command "wget"; then
-            missing_deps+=("wget")
-        fi
-        
-        if ! check_command "npx"; then
-            missing_deps+=("nodejs npm")
+        deps_to_check+=("${build_deps[@]}" "${runtime_deps[@]}")
+    elif [ "$check_type" = "build" ]; then
+        deps_to_check+=("${build_deps[@]}")
+    elif [ "$check_type" = "runtime" ]; then
+        deps_to_check+=("${runtime_deps[@]}")
+    fi
+    
+    # Check if required commands exist
+    for cmd in "${deps_to_check[@]}"; do
+        if ! check_command "$cmd"; then
+            missing_deps+=("${dep_map[$cmd]}")
         fi
     fi
     
     # If any dependencies are missing, print a message and return error
     if [ ${#missing_deps[@]} -gt 0 ]; then
-        echo "Missing dependencies: ${missing_deps[*]}"
+        # Remove duplicates
+        local unique_deps=($(printf "%s\n" "${missing_deps[@]}" | sort -u))
+        
+        echo "Missing dependencies: ${unique_deps[*]}"
         echo "Please install them with:"
-        echo "sudo apt update && sudo apt install -y ${missing_deps[*]}"
+        echo "sudo apt update && sudo apt install -y ${unique_deps[*]}"
         return 1
     fi
     
     return 0
 }
 
-# Install dependencies if missing
+# Install dependencies if missing - consolidated with original installer approach
 install_dependencies() {
     local install_type="${1:-basic}"
     if ! check_dependencies "$install_type"; then
@@ -303,18 +326,82 @@ install_dependencies() {
             return 1
         fi
         
-        if ! sudo apt update; then
-            echo "❌ Failed to run 'sudo apt update'."
-            return 1
-        fi
+        # Determine which packages to install based on the check results
+        local missing_deps=()
+        
+        # Map of dependency types and their associated packages
+        local -A dep_map=(
+            ["bubblewrap"]="bubblewrap"
+            ["jq"]="jq"
+            ["git"]="git"
+            ["7z"]="p7zip-full"
+            ["wget"]="wget"
+            ["wrestool"]="icoutils"
+            ["icotool"]="icoutils"
+            ["convert"]="imagemagick"
+            ["dpkg-deb"]="dpkg-dev"
+            ["electron"]="electron"
+            ["node"]="nodejs"
+            ["npm"]="npm"
+        )
+        
+        # Check which dependencies are missing
+        local deps_to_check=("bubblewrap" "jq" "git")
         
         if [ "$install_type" = "full" ]; then
-            sudo apt install -y bubblewrap jq git p7zip-full wget nodejs npm
-        else
-            sudo apt install -y bubblewrap jq git
+            deps_to_check+=("7z" "wget" "wrestool" "icotool" "dpkg-deb" "node" "npm")
+            
+            # Special handling for electron which might need to be installed via npm
+            if ! check_command "electron"; then
+                # We'll install electron via npm after other dependencies are installed
+                local need_electron=true
+            fi
+        elif [ "$install_type" = "build" ]; then
+            deps_to_check+=("7z" "wget" "wrestool" "icotool" "dpkg-deb")
+        elif [ "$install_type" = "runtime" ]; then
+            deps_to_check+=("node" "npm")
+            
+            if ! check_command "electron"; then
+                local need_electron=true
+            fi
         fi
         
-        echo "✓ Dependencies installed successfully."
+        # Build list of packages to install
+        for cmd in "${deps_to_check[@]}"; do
+            if ! check_command "$cmd"; then
+                missing_deps+=("${dep_map[$cmd]}")
+            fi
+        done
+        
+        # Remove duplicates
+        local unique_deps=($(printf "%s\n" "${missing_deps[@]}" | sort -u))
+        
+        if [ ${#unique_deps[@]} -gt 0 ]; then
+            # Update package lists
+            if ! sudo apt update; then
+                echo "❌ Failed to run 'sudo apt update'."
+                return 1
+            fi
+            
+            # Install packages
+            if ! sudo apt install -y "${unique_deps[@]}"; then
+                echo "❌ Failed to install packages."
+                return 1
+            fi
+            
+            echo "✓ System dependencies installed successfully."
+        fi
+        
+        # Install electron via npm if needed
+        if [ "${need_electron:-false}" = true ]; then
+            echo "Installing electron via npm..."
+            if ! sudo npm install -g electron; then
+                echo "❌ Failed to install electron via npm."
+                return 1
+            fi
+            echo "✓ Electron installed via npm."
+        fi
+        
         return 0
     fi
     

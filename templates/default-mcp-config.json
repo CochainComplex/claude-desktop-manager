@@ -1,0 +1,4 @@
+{
+  "showTray": true,
+  "electronInitScript": "/home/claude/.config/Claude/electron/preload.js"
+}

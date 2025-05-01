@@ -12,7 +12,7 @@ get_sandbox_username() {
     echo "claude"
 }
 
-# Create a sandbox environment
+# Create a sandbox environment - consolidated implementation with the original claude_sandbox.sh
 create_sandbox() {
     local sandbox_name="$1"
     local sandbox_home="${SANDBOX_BASE}/${sandbox_name}"
@@ -40,8 +40,23 @@ create_sandbox() {
     
     echo "Created fake passwd file with username 'claude' and home '/home/claude'"
     
-    # Create initialization script
-    cat > "${sandbox_home}/init.sh" <<EOF
+    # Try to find the template directory
+    local template_dir="$(find_template_dir)"
+    if [ -z "$template_dir" ]; then
+        template_dir="${SCRIPT_DIR}/../templates"
+    fi
+    
+    # Check for sandbox initialization template
+    local init_template="${template_dir}/sandbox-init.sh"
+    
+    if [ -f "$init_template" ]; then
+        echo "Using sandbox initialization template from: $init_template"
+        cp "$init_template" "${sandbox_home}/init.sh"
+        chmod +x "${sandbox_home}/init.sh"
+    else {
+        echo "Creating sandbox initialization script inline"
+        # Create initialization script
+        cat > "${sandbox_home}/init.sh" <<EOF
 #!/bin/bash
 set -e
 
@@ -60,8 +75,9 @@ mkdir -p ~/.local/bin
 touch ~/.cmgr_initialized
 echo "Sandbox initialization complete!"
 EOF
-    
-    chmod +x "${sandbox_home}/init.sh"
+        chmod +x "${sandbox_home}/init.sh"
+    }
+    fi
     
     # Create .bashrc with custom prompt, but filter out problematic commands
     if [ -f ~/.bashrc ]; then
@@ -72,23 +88,29 @@ EOF
         echo '# Generated .bashrc for Claude sandbox' > "${sandbox_home}/.bashrc"
     fi
     
-    # Add custom prompt to identify the Claude instance
+    # Add custom prompt to identify the Claude instance with color
     echo 'PS1="\[\e[48;5;208m\e[97m\]claude-'"${sandbox_name}"'\[\e[0m\] \[\e[1;32m\]\h:\w\[\e[0m\]$ "' >> "${sandbox_home}/.bashrc"
+    
+    # MCP configuration template
+    local mcp_config_template="${template_dir}/default-mcp-config.json"
     
     # Copy existing MCP configuration if available
     mkdir -p "${sandbox_home}/.config/Claude"
     if [ -f "${HOME}/.config/Claude/claude_desktop_config.json" ]; then
-        echo "Copying existing MCP configuration to sandbox..."
+        echo "Copying existing MCP configuration from host to sandbox..."
         cp "${HOME}/.config/Claude/claude_desktop_config.json" "${sandbox_home}/.config/Claude/"
-    else
-        # Create default MCP configuration
-        echo "Creating default MCP configuration in sandbox..."
+    elif [ -f "$mcp_config_template" ]; then
+        echo "Using default MCP configuration from template..."
+        cp "$mcp_config_template" "${sandbox_home}/.config/Claude/claude_desktop_config.json"
+    else {
+        echo "Creating default MCP configuration inline..."
         cat > "${sandbox_home}/.config/Claude/claude_desktop_config.json" <<EOF
 {
   "showTray": true,
   "electronInitScript": "/home/claude/.config/Claude/electron/preload.js"
 }
 EOF
+    }
     fi
     
     # Initialize sandbox

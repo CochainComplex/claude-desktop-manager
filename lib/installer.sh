@@ -39,8 +39,7 @@ log_error() { log_message "ERROR" "$1"; }
 # This function builds Claude Desktop by extracting from the Windows installer
 # and creating a compatible Linux package
 # 
-# Derived from the original emsi/claude-desktop project but modified to use
-# local scripts instead of cloning the repository
+# Consolidated implementation that eliminates duplication with the original installer
 # @param build_format The format of the package to build (deb or appimage)
 build_and_cache_claude() {
     local build_format="${1:-deb}"
@@ -55,33 +54,166 @@ build_and_cache_claude() {
     local build_dir
     build_dir="$(mktemp -d)"
     
-    # Get the script directory using utility function
-    local script_dir="$(find_scripts_dir)"
-    if [ -z "$script_dir" ]; then
-        log_error "Could not find scripts directory"
-        rm -rf "$build_dir"
-        return 1
+    # Get the scripts directory using utility function
+    local script_dir="${SCRIPT_DIR}/../scripts"
+    if [ ! -d "$script_dir" ]; then
+        script_dir="$(find_scripts_dir)"
+        if [ -z "$script_dir" ]; then
+            log_error "Could not find scripts directory"
+            rm -rf "$build_dir"
+            return 1
+        fi
     fi
     
-    log_info "Using local scripts from: ${script_dir}"
+    log_info "Using scripts from: ${script_dir}"
     
-    # Check if extract-claude-windows.sh exists
-    if [ ! -f "${script_dir}/extract-claude-windows.sh" ]; then
-        log_error "Required script not found: ${script_dir}/extract-claude-windows.sh"
-        rm -rf "$build_dir"
-        return 1
+    # Check if the extraction script exists or create it if needed
+    local extract_script="${script_dir}/extract-claude-windows.sh"
+    if [ ! -f "$extract_script" ]; then
+        log_warn "Extract script not found, creating it at ${extract_script}"
+        
+        # Try to find the template directory
+        local template_dir="$(find_template_dir)"
+        if [ -z "$template_dir" ]; then
+            template_dir="${SCRIPT_DIR}/../templates"
+        fi
+        
+        # Create extract script directory if needed
+        mkdir -p "$(dirname "$extract_script")"
+        
+        # Check if we have a template for the extract script
+        if [ -f "${template_dir}/scripts/extract-claude-windows.sh" ]; then
+            cp "${template_dir}/scripts/extract-claude-windows.sh" "$extract_script"
+            chmod +x "$extract_script"
+            log_info "Copied extract script from template"
+        else
+            log_warn "No template found for extract script, using inline version"
+            # Create a basic extraction script
+            cat > "$extract_script" << 'EOF'
+#!/bin/bash
+# extract-claude-windows.sh - Extracts Claude Desktop Windows installer to prepare for Linux packaging
+
+set -e
+
+# Update this URL when a new version of Claude Desktop is released
+CLAUDE_DOWNLOAD_URL="https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-x64/Claude-Setup-x64.exe"
+OUTPUT_DIR="/tmp/claude-desktop-raw"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --url=*)
+      CLAUDE_DOWNLOAD_URL="${1#*=}"
+      shift
+      ;;
+    --output=*)
+      OUTPUT_DIR="${1#*=}"
+      shift
+      ;;
+    --help)
+      echo "Usage: $0 [--url=URL] [--output=DIR]"
+      echo ""
+      echo "Options:"
+      echo "  --url=URL     Use a specific download URL for Claude Windows installer"
+      echo "  --output=DIR  Output directory for extracted files (default: /tmp/claude-desktop-raw)"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+# Check for required commands
+for cmd in wget 7z; do
+  if ! command -v $cmd &> /dev/null; then
+    echo "❌ Required command not found: $cmd"
+    echo "Please install the missing dependencies and try again."
+    exit 1
+  fi
+done
+
+# Create output directory
+rm -rf "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR/app_files"
+
+# Download Claude Windows installer
+echo "📥 Downloading Claude Desktop Windows installer..."
+CLAUDE_EXE="$OUTPUT_DIR/Claude-Setup-x64.exe"
+if ! wget -O "$CLAUDE_EXE" "$CLAUDE_DOWNLOAD_URL"; then
+    echo "❌ Failed to download Claude Desktop installer"
+    exit 1
+fi
+echo "✓ Download complete"
+
+# Extract resources
+echo "📦 Extracting resources..."
+cd "$OUTPUT_DIR"
+if ! 7z x -y "$CLAUDE_EXE"; then
+    echo "❌ Failed to extract installer"
+    exit 1
+fi
+
+# Find and extract the nupkg file
+NUPKG_FILE=$(find . -name "*.nupkg" | head -1)
+if [ -z "$NUPKG_FILE" ]; then
+    echo "❌ Could not find .nupkg file in extracted installer"
+    exit 1
+fi
+
+if ! 7z x -y "$NUPKG_FILE"; then
+    echo "❌ Failed to extract nupkg"
+    exit 1
+fi
+
+# Move app.asar and related files to app_files directory
+echo "Moving app.asar and related files to app_files directory..."
+if [ -f "lib/net45/resources/app.asar" ]; then
+    cp "lib/net45/resources/app.asar" "$OUTPUT_DIR/app_files/"
+    if [ -d "lib/net45/resources/app.asar.unpacked" ]; then
+        cp -r "lib/net45/resources/app.asar.unpacked" "$OUTPUT_DIR/app_files/"
+    fi
+    echo "✓ Copied app.asar and related files"
+else
+    echo "❌ app.asar not found in expected location"
+    exit 1
+fi
+
+echo "✅ Extraction complete. Files available at: $OUTPUT_DIR"
+echo "   - Windows installer: $CLAUDE_EXE"
+echo "   - app.asar: $OUTPUT_DIR/app_files/app.asar"
+
+# Output the location for other scripts to use
+echo "$OUTPUT_DIR"
+EOF
+            chmod +x "$extract_script"
+            log_info "Created extract script from inline template"
+        fi
     fi
     
     # Execute the extraction script to get the raw files
     log_info "Extracting Claude Desktop Windows files..."
-    if ! bash "${script_dir}/extract-claude-windows.sh"; then
+    local raw_dir_output
+    raw_dir_output=$(bash "$extract_script" 2>&1) || {
         log_error "Failed to extract Claude Desktop Windows files."
         rm -rf "$build_dir"
         return 1
+    }
+    
+    # Get the output directory from the last line of output
+    local raw_dir
+    raw_dir=$(echo "$raw_dir_output" | tail -n1)
+    
+    # Verify it looks like a directory path
+    if [[ ! "$raw_dir" == /* ]]; then
+        # Fallback to default if extraction script didn't return a path
+        raw_dir="/tmp/claude-desktop-raw"
     fi
     
-    # Extract raw files are in /tmp/claude-desktop-raw
-    local raw_dir="/tmp/claude-desktop-raw"
+    log_info "Using extracted files from: $raw_dir"
+    
     if [ ! -d "$raw_dir" ] || [ ! -f "$raw_dir/app_files/app.asar" ]; then
         log_error "Extraction failed or app.asar not found in expected location."
         rm -rf "$build_dir"
@@ -94,8 +226,7 @@ build_and_cache_claude() {
     
     log_info "Building Claude Desktop package..."
     
-    # Build the package - adapted from the original install-claude-desktop.sh
-    # This is the simplified package building logic
+    # Build the package - consolidated implementation to avoid duplication
     (
         cd "$build_dir"
         
@@ -125,19 +256,6 @@ build_and_cache_claude() {
             fi
         fi
         
-        # Method 3: Look for version in Claude exe filename
-        if [ -z "$VERSION" ]; then
-            echo "Looking for version in claude.exe..."
-            local exe_path=$(find "${raw_dir}" -name "claude.exe" -type f | head -1)
-            if [ -n "$exe_path" ]; then
-                # Use strings and grep to look for version-like patterns in the binary
-                if command -v strings &>/dev/null; then
-                    VERSION=$(strings "$exe_path" | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+" | head -1)
-                    echo "Found version in claude.exe strings: ${VERSION:-not found}"
-                fi
-            fi
-        fi
-        
         # Fallback if all methods fail
         if [ -z "$VERSION" ]; then
             VERSION="0.9.$(date +%Y%m%d)"
@@ -156,9 +274,16 @@ build_and_cache_claude() {
             cp -r "${raw_dir}/app_files/app.asar.unpacked" "${INSTALL_DIR}/lib/${PACKAGE_NAME}/"
         fi
         
-        # Create native module stub
+        # Create native module stub - from template if available
+        local native_stub_template="${template_dir}/claude-native-stub.js"
         mkdir -p "${INSTALL_DIR}/lib/${PACKAGE_NAME}/app.asar.unpacked/node_modules/claude-native"
-        cat > "${INSTALL_DIR}/lib/${PACKAGE_NAME}/app.asar.unpacked/node_modules/claude-native/index.js" << 'EOF'
+        
+        if [ -f "$native_stub_template" ]; then
+            cp "$native_stub_template" "${INSTALL_DIR}/lib/${PACKAGE_NAME}/app.asar.unpacked/node_modules/claude-native/index.js"
+            log_info "Copied native module stub from template"
+        else {
+            log_info "Creating native module stub inline"
+            cat > "${INSTALL_DIR}/lib/${PACKAGE_NAME}/app.asar.unpacked/node_modules/claude-native/index.js" << 'EOF'
 // Stub implementation of claude-native using KeyboardKey enum values
 const KeyboardKey = {
   Backspace: 43,
@@ -199,6 +324,8 @@ module.exports = {
   KeyboardKey
 };
 EOF
+        }
+        fi
         
         # Extract and process icons
         if [ -d "${raw_dir}/lib/net45" ]; then
@@ -229,8 +356,15 @@ EOF
             fi
         fi
         
-        # Create desktop entry
-        cat > "${INSTALL_DIR}/share/applications/claude-desktop.desktop" << EOF
+        # Create desktop entry from template if available
+        local desktop_entry_template="${template_dir}/desktop_entry.desktop"
+        if [ -f "$desktop_entry_template" ]; then
+            cp "$desktop_entry_template" "${INSTALL_DIR}/share/applications/claude-desktop.desktop"
+            # No substitution needed for base desktop entry
+            log_info "Copied desktop entry from template"
+        else {
+            log_info "Creating desktop entry inline"
+            cat > "${INSTALL_DIR}/share/applications/claude-desktop.desktop" << EOF
 [Desktop Entry]
 Name=Claude
 Exec=claude-desktop %u
@@ -241,13 +375,24 @@ Categories=Office;Utility;
 MimeType=x-scheme-handler/claude;
 StartupWMClass=Claude
 EOF
+        }
+        fi
         
-        # Create launcher script
-        cat > "${INSTALL_DIR}/bin/claude-desktop" << EOF
+        # Create launcher script from template if available
+        local launcher_template="${template_dir}/claude-desktop-launcher.sh"
+        if [ -f "$launcher_template" ]; then
+            cp "$launcher_template" "${INSTALL_DIR}/bin/claude-desktop"
+            chmod +x "${INSTALL_DIR}/bin/claude-desktop"
+            log_info "Copied launcher script from template"
+        else {
+            log_info "Creating launcher script inline"
+            cat > "${INSTALL_DIR}/bin/claude-desktop" << EOF
 #!/bin/bash
 electron /usr/lib/claude-desktop/app.asar "\$@"
 EOF
-        chmod +x "${INSTALL_DIR}/bin/claude-desktop"
+            chmod +x "${INSTALL_DIR}/bin/claude-desktop"
+        }
+        fi
         
         # Create control file
         cat > "${DEB_ROOT}/DEBIAN/control" << EOF
@@ -279,7 +424,7 @@ EOF
         return 1
     }
     
-    # Find the built package with more robust search
+    # Find the built package with robust search
     local package_file=""
     if [ "$build_format" = "deb" ]; then
         # First try the exact pattern
@@ -305,7 +450,7 @@ EOF
     
     log_info "Found package: $package_file"
     
-    # Extract version from filename with more robust pattern matching
+    # Extract version from filename with robust pattern matching
     local version=""
     local package_basename=$(basename "$package_file")
     
