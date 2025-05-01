@@ -81,6 +81,25 @@ cmgr remove my-instance
 cmgr help
 ```
 
+### Privilege Management
+
+Claude Desktop Manager uses a least-privilege approach, only requesting elevated permissions (sudo) when absolutely necessary. This means you can run most commands without sudo:
+
+```bash
+# No sudo needed for regular operations
+./cmgr create work
+./cmgr start work
+./cmgr list
+./cmgr stop work
+
+# Only specific operations may request elevated privileges
+./cmgr enable-userns     # Requires sudo to enable kernel features
+./cmgr desktop work      # Offers option for system-wide desktop entry (requires sudo)
+./cmgr alias work        # Offers option for system-wide alias (requires sudo)
+```
+
+If you run `cmgr` with sudo unnecessarily, it will notify you that most operations don't require elevated privileges and will automatically drop privileges for those operations.
+
 The `cmgr` tool provides a set of commands for managing Claude Desktop instances. Each command is designed to be simple and intuitive:
 
 - `create`: Create a new isolated Claude Desktop instance
@@ -143,11 +162,25 @@ The Claude Desktop Manager uses the following directory structure:
 - `~/sandboxes/` - Base directory for sandbox environments
 - `~/sandboxes/<instance-name>/` - Sandbox for a specific instance
 
-## Graphics Hardware Notes
+## Graphics and Display Server Compatibility
 
-Claude Desktop Manager implements several techniques to ensure compatibility with different graphics hardware configurations:
+Claude Desktop Manager implements several techniques to ensure compatibility with different graphics hardware configurations and display servers:
 
-1. **Hardware Acceleration Disabled**: All instances run with `--disable-gpu` flag to prevent common rendering issues
+### Wayland and X11 Support
+
+Claude Desktop Manager offers enhanced support for both Wayland and X11 display servers:
+
+1. **Automatic Detection**: Automatically detects whether you're running Wayland or X11
+2. **Wayland Protocol Sockets**: Binds all necessary Wayland protocol sockets in the sandbox
+3. **Environment Variables**: Sets appropriate environment variables for Wayland/X11 compatibility
+4. **Ubuntu 24.04 Support**: Includes specific optimizations for Ubuntu 24.04's Wayland implementation
+5. **Electron Configuration**: Uses appropriate Electron flags for each display server
+
+### Graphics Hardware Compatibility
+
+The tool also ensures compatibility with various graphics hardware:
+
+1. **Adaptive GPU Handling**: Uses `--disable-gpu` on X11 but enables GPU with Wayland
 2. **LIBVA Driver Management**: Uses `LIBVA_DRIVER_NAME=dummy` to prevent Intel graphics errors
 3. **Device Access**: Explicitly binds graphics devices in the sandbox environment
 4. **SwiftShader Support**: Enables software rendering fallback with the `--enable-unsafe-swiftshader` flag
@@ -155,6 +188,37 @@ Claude Desktop Manager implements several techniques to ensure compatibility wit
 These measures prevent common errors like:
 - `libva error: i965_drv_video.so init failed`
 - `Automatic fallback to software WebGL has been deprecated`
+- Wayland socket access errors
+
+## Privilege Management System
+
+Claude Desktop Manager includes a sophisticated privilege management system designed to:
+
+1. **Minimize Privilege Use**: Only requests elevated permissions (sudo) when absolutely necessary
+2. **Transparent Operation**: Explains exactly why elevated privileges are needed before requesting them
+3. **Privilege Dropping**: Automatically drops privileges for operations that don't require them
+4. **User Choice**: Offers options between user-level and system-wide installations
+
+### When Elevated Privileges Are Used
+
+Elevated privileges (sudo) are only requested for:
+
+- **System Configuration**: Enabling unprivileged user namespaces (kernel settings)
+- **System-Wide Integration**: Installing desktop shortcuts or aliases for all users (optional)
+- **System File Modification**: Updating files in protected directories like `/usr/share` (optional)
+
+For all regular operations like creating instances, starting/stopping instances, and managing configuration, no elevated privileges are required, even if you initially ran `cmgr` with sudo.
+
+### Implementation
+
+The privilege management system uses a set of helper functions that:
+
+1. Check if an operation requires elevated privileges based on target paths and operation type
+2. Only request elevation for the specific operation that needs it
+3. Provide clear messaging about what privileges are being requested and why
+4. Offer graceful fallbacks to user-level operations when elevated privileges are unavailable
+
+This ensures that Claude Desktop Manager follows the principle of least privilege, providing better security and transparency.
 
 ## Window Title Customization
 
@@ -372,7 +436,33 @@ For more details on the patching process and troubleshooting, see the [Patching 
 
 ### Display Issues
 
-If you encounter display issues:
+If you encounter display issues, solutions differ based on your display server:
+
+#### Wayland (Ubuntu 24.04+)
+
+For Wayland display issues:
+
+1. Verify your Wayland session is working correctly
+2. Check Wayland socket permissions
+3. Ensure the sandbox has access to the Wayland sockets
+
+```bash
+# Check if running Wayland
+echo $XDG_SESSION_TYPE
+
+# Check Wayland socket accessibility
+ls -la $XDG_RUNTIME_DIR/wayland-*
+
+# Check media protocol sockets (important for audio/video)
+ls -la $XDG_RUNTIME_DIR/pipewire-* $XDG_RUNTIME_DIR/pulse/
+
+# Start with verbose logging
+cmgr execute my-instance bash -c 'ELECTRON_ENABLE_LOGGING=1 $HOME/.local/bin/claude-desktop --ozone-platform=wayland'
+```
+
+#### X11
+
+For X11 display issues:
 
 1. Make sure X11 is properly configured
 2. Check if the `DISPLAY` and `XAUTHORITY` environment variables are correctly set

@@ -69,6 +69,20 @@ Multiple Instance Management:
     - Each instance gets a 100-port range (instance1: 9000-9099, instance2: 9100-9199, etc.)
     - Tool-specific ports are assigned within each range
 
+Privilege Management:
+  Claude Desktop Manager uses a least-privilege approach, only requesting elevated 
+  permissions (sudo) when absolutely necessary. The following operations may require 
+  elevated privileges:
+
+  - Enabling unprivileged user namespaces (cmgr enable-userns)
+  - Installing system-wide desktop shortcuts (optional)
+  - Creating system-wide aliases (optional)
+  - Modifying system-wide Claude Desktop files
+
+  For regular operations like creating and managing instances, no elevated privileges
+  are required. Any operation that needs elevated privileges will prompt you before
+  proceeding.
+
 For more information, see the README.md file.
 EOF
 }

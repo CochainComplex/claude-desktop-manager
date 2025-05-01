@@ -26,6 +26,9 @@ echo "Sourcing from: ${SCRIPT_LIB}"
 source "${SCRIPT_LIB}/utils.sh"       # Load utilities first
 echo "Sourced utils.sh"
 
+source "${SCRIPT_LIB}/privileges.sh"  # Load privilege management before other modules
+echo "Sourced privileges.sh"
+
 source "${SCRIPT_LIB}/dependencies.sh"
 echo "Sourced dependencies.sh"
 
@@ -59,20 +62,22 @@ if ! check_dependencies; then
     exit 1
 fi
 
-# Global variables - handle sudo properly
-if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
-    # Running as root with sudo
-    ORIGINAL_USER="${SUDO_USER}"
-    ORIGINAL_HOME=$(eval echo ~${SUDO_USER})
-    CMGR_HOME="${ORIGINAL_HOME}/.cmgr"
-    SANDBOX_BASE="${ORIGINAL_HOME}/sandboxes"
-    
-    # Make sure we don't use root's home
-    export HOME="${ORIGINAL_HOME}"
-else
-    # Running as regular user
-    CMGR_HOME="${HOME}/.cmgr"
-    SANDBOX_BASE="${HOME}/sandboxes"
+# Global variables - using improved privilege handling
+ORIGINAL_USER="$(get_effective_username)"
+ORIGINAL_HOME="$(get_original_home)"
+CMGR_HOME="${ORIGINAL_HOME}/.cmgr"
+SANDBOX_BASE="${ORIGINAL_HOME}/sandboxes"
+
+# Make sure we always use the correct home directory
+# even if running with sudo
+export HOME="${ORIGINAL_HOME}"
+
+# Warn if running entire script with sudo unnecessarily
+if is_running_as_root; then
+    echo "Note: Running with elevated privileges. This script only needs privileges"
+    echo "      for specific operations and will request them when necessary."
+    echo "      For regular use, you can run without sudo: ./cmgr [command]"
+    echo ""
 fi
 
 CMGR_CACHE="${CMGR_HOME}/cache"
@@ -86,9 +91,10 @@ if [ ! -f "${CMGR_REGISTRY}" ]; then
     echo '{"instances": {}}' > "${CMGR_REGISTRY}"
 fi
 
-# Fix ownership if running as root
-if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
-    chown -R "${SUDO_USER}:$(id -gn "${SUDO_USER}")" "${CMGR_HOME}" "${SANDBOX_BASE}"
+# Fix ownership if running as root - using improved privilege management
+if is_running_as_root; then
+    restore_ownership "${CMGR_HOME}"
+    restore_ownership "${SANDBOX_BASE}"
 fi
 
 # Command handlers
@@ -1042,7 +1048,7 @@ cmd_enable_userns() {
         echo "You'll be prompted for authentication to enable this feature."
         echo
         
-        if enable_userns; then
+        if enable_unprivileged_userns; then
             echo "✓ Successfully enabled unprivileged user namespaces"
             echo "Sandboxing will now work with full capabilities"
             

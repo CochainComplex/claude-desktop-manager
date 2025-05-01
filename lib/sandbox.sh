@@ -37,6 +37,23 @@ create_sandbox() {
     fi
     echo "User namespaces: $userns_status (sandbox will function either way)"
     
+    # Offer to enable user namespaces if disabled and not currently root
+    if [ "$userns_status" = "disabled" ] && ! is_running_as_root; then
+        echo "Would you like to enable unprivileged user namespaces for better security? (y/n)"
+        read -r -p "> " response
+        if [[ "$response" =~ ^[Yy] ]]; then
+            echo "Attempting to enable unprivileged user namespaces..."
+            if enable_unprivileged_userns; then
+                echo "✓ User namespaces enabled successfully"
+                userns_status="enabled"
+            else
+                echo "Could not enable user namespaces. Continuing with limited isolation."
+            fi
+        else
+            echo "Continuing with user namespaces disabled."
+        fi
+    fi
+    
     # Create sandbox directory
     mkdir -p "$sandbox_home"
     
@@ -161,11 +178,25 @@ run_in_sandbox() {
     echo "Sandbox user: $sandbox_username"
     echo "----------------------------"
     
-    # Check if running in Wayland session
+    # Enhanced Wayland detection for Ubuntu 24.04 support
     local is_wayland=false
+    local wayland_detection_method=""
+
     if [ -n "${WAYLAND_DISPLAY:-}" ]; then
         is_wayland=true
-        echo "Detected Wayland session (WAYLAND_DISPLAY=${WAYLAND_DISPLAY})"
+        wayland_detection_method="WAYLAND_DISPLAY environment variable: ${WAYLAND_DISPLAY}"
+    elif [ -n "${XDG_SESSION_TYPE:-}" ] && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
+        is_wayland=true
+        wayland_detection_method="XDG_SESSION_TYPE environment variable"
+    elif [ -S "${XDG_RUNTIME_DIR:-}/wayland-0" ]; then
+        is_wayland=true
+        wayland_detection_method="wayland-0 socket in XDG_RUNTIME_DIR"
+    fi
+
+    if [ "$is_wayland" = true ]; then
+        echo "Detected Wayland session ($wayland_detection_method)"
+    else
+        echo "Detected X11 session (no Wayland indicators found)"
     fi
 
     # Create tmp directory for auth files
@@ -179,16 +210,20 @@ run_in_sandbox() {
         echo "Using Wayland session, creating dummy X auth file"
         touch "$xauth_file"
     else
-        # For X11: try to use existing auth file or create one
+        # For X11: try to use existing auth file with improved privilege management
+        local xauth_source=""
+        
         if [ -n "${XAUTHORITY:-}" ] && [ -f "${XAUTHORITY}" ]; then
             echo "Using XAUTHORITY from environment: ${XAUTHORITY}"
-            cp "${XAUTHORITY}" "$xauth_file" 2>/dev/null || touch "$xauth_file"
-        elif [ -f "${HOME}/.Xauthority" ]; then
-            echo "Using .Xauthority from home: ${HOME}/.Xauthority"
-            cp "${HOME}/.Xauthority" "$xauth_file" 2>/dev/null || touch "$xauth_file"
-        elif [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ -f "/home/${SUDO_USER}/.Xauthority" ]; then
-            echo "Using .Xauthority from sudo user's home"
-            cp "/home/${SUDO_USER}/.Xauthority" "$xauth_file" 2>/dev/null || touch "$xauth_file"
+            xauth_source="${XAUTHORITY}"
+        elif [ -f "${ORIGINAL_HOME}/.Xauthority" ]; then
+            echo "Using .Xauthority from home: ${ORIGINAL_HOME}/.Xauthority"
+            xauth_source="${ORIGINAL_HOME}/.Xauthority"
+        fi
+        
+        # Copy the found Xauthority file, or create empty if none
+        if [ -n "$xauth_source" ]; then
+            cp "$xauth_source" "$xauth_file" 2>/dev/null || touch "$xauth_file"
         else
             # No auth file found, create empty one
             echo "No Xauthority file found, creating empty one"
@@ -230,13 +265,32 @@ run_in_sandbox() {
     # User-specific mounts for GUI apps - support both X11 and Wayland
     bwrap_cmd+=(--bind /tmp/.X11-unix /tmp/.X11-unix)
     
-    # Add Wayland socket if available
-    if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
-        wayland_path="${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}"
+    # Enhanced Wayland socket binding for Ubuntu 24.04
+    if [ "$is_wayland" = true ] && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+        # Bind main Wayland socket
+        local main_wayland=${WAYLAND_DISPLAY:-wayland-0}
+        local wayland_path="${XDG_RUNTIME_DIR}/${main_wayland}"
+        
         if [ -S "$wayland_path" ]; then
-            echo "Binding Wayland socket: $wayland_path"
+            echo "Binding main Wayland socket: $wayland_path"
             bwrap_cmd+=(--bind "$wayland_path" "$wayland_path")
         fi
+        
+        # Bind all additional wayland protocol sockets
+        for socket in "${XDG_RUNTIME_DIR}"/wayland-*; do
+            if [ -S "$socket" ] && [ "$socket" != "$wayland_path" ]; then
+                echo "Binding additional Wayland socket: $socket"
+                bwrap_cmd+=(--bind "$socket" "$socket")
+            fi
+        done
+        
+        # Bind pipewire sockets (commonly used with Wayland)
+        for socket in "${XDG_RUNTIME_DIR}"/pipewire-* "${XDG_RUNTIME_DIR}"/pulse "${XDG_RUNTIME_DIR}"/pipewire/; do
+            if [ -e "$socket" ]; then
+                echo "Binding media socket: $socket"
+                bwrap_cmd+=(--bind "$socket" "$socket")
+            fi
+        done
     fi
     
     # Bind our custom temporary directory to ensure scripts can access it
@@ -343,7 +397,7 @@ run_in_sandbox() {
     fi
     echo "Using DISPLAY=$display_to_use for sandbox"
     
-    # Environment variables
+    # Environment variables with enhanced Wayland support for Ubuntu 24.04
     bwrap_cmd+=(
         --clearenv
         --setenv HOME "${sandbox_user_home}"
@@ -364,6 +418,35 @@ run_in_sandbox() {
         --setenv XDG_CACHE_HOME "${sandbox_user_home}/.cache"
     )
     
+    # Add Wayland-specific environment variables if running in Wayland
+    if [ "$is_wayland" = true ]; then
+        # Set XDG_SESSION_TYPE for proper Wayland detection
+        bwrap_cmd+=(--setenv XDG_SESSION_TYPE "wayland")
+        
+        # For wlroots-based Wayland compositors (common in Ubuntu 24.04)
+        if [ -n "${_JAVA_AWT_WM_NONREPARENTING:-}" ]; then
+            bwrap_cmd+=(--setenv _JAVA_AWT_WM_NONREPARENTING "${_JAVA_AWT_WM_NONREPARENTING}")
+        else
+            bwrap_cmd+=(--setenv _JAVA_AWT_WM_NONREPARENTING "1")
+        fi
+        
+        # For newer GTK applications on Wayland
+        if [ -n "${GDK_BACKEND:-}" ]; then
+            bwrap_cmd+=(--setenv GDK_BACKEND "${GDK_BACKEND}")
+        else
+            bwrap_cmd+=(--setenv GDK_BACKEND "wayland,x11")
+        fi
+        
+        # For Qt applications on Wayland
+        bwrap_cmd+=(--setenv QT_QPA_PLATFORM "wayland;xcb")
+        
+        # For electron applications (like Claude Desktop)
+        bwrap_cmd+=(--setenv ELECTRON_OZONE_PLATFORM_HINT "auto")
+        
+        # To prevent Electron apps from falling back to X11 too quickly
+        bwrap_cmd+=(--setenv ELECTRON_ENABLE_LOGGING "1")
+    fi
+    
     # Add X11 authentication environment variables if they exist
     if [ -n "${XAUTHORITY:-}" ]; then
         echo "Setting XAUTHORITY=${sandbox_user_home}/.Xauthority in sandbox"
@@ -373,23 +456,24 @@ run_in_sandbox() {
         bwrap_cmd+=(--setenv XAUTHORITY "${sandbox_user_home}/.Xauthority")
     fi
     
-    # Handle XDG_RUNTIME_DIR differently for sudo
-    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
-        # Get original user's ID
-        local original_uid=$(id -u "${SUDO_USER}")
+    # Handle XDG_RUNTIME_DIR with improved privilege management
+    # Get effective user ID regardless of sudo status
+    local effective_uid
+    if is_running_as_root; then
+        effective_uid=$(id -u "${ORIGINAL_USER}")
+    else
+        effective_uid=$(id -u)
+    fi
+    
+    # Use runtime directory based on effective user
+    if [ -d "/run/user/${effective_uid}" ]; then
+        echo "Using runtime directory: /run/user/${effective_uid}"
+        bwrap_cmd+=(--setenv XDG_RUNTIME_DIR "/run/user/${effective_uid}")
         
-        # Try to use the original user's runtime directory
-        if [ -d "/run/user/${original_uid}" ]; then
-            echo "Using original user's XDG_RUNTIME_DIR: /run/user/${original_uid}"
-            bwrap_cmd+=(--setenv XDG_RUNTIME_DIR "/run/user/${original_uid}")
-            
-            # Bind the runtime directory
-            if [ -d "/run/user/${original_uid}" ]; then
-                bwrap_cmd+=(--bind "/run/user/${original_uid}" "/run/user/${original_uid}")
-            fi
-        fi
+        # Bind the runtime directory
+        bwrap_cmd+=(--bind "/run/user/${effective_uid}" "/run/user/${effective_uid}")
     elif [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "${XDG_RUNTIME_DIR}" ]; then
-        # Standard case - use the current runtime dir
+        # Fallback - use the current runtime dir if available
         bwrap_cmd+=(--setenv XDG_RUNTIME_DIR "${XDG_RUNTIME_DIR}")
     fi
     
@@ -411,7 +495,7 @@ run_in_sandbox() {
     local result=$?
     
     # Clean up temporary Xauthority file if we created one
-    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ -n "${xauth_file:-}" ] && [ -f "${xauth_file}" ]; then
+    if [ -n "${xauth_file:-}" ] && [ -f "${xauth_file}" ]; then
         rm -f "${xauth_file}"
         # Clean up any old auth files (older than 1 day)
         find "${SANDBOX_BASE}/tmp" -name "xauth.*" -mtime +1 -delete 2>/dev/null || true

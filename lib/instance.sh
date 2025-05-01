@@ -245,8 +245,18 @@ start_instance() {
     local build_format
     build_format=$(echo "$instance" | jq -r '.build_format')
     
-    # Debug display information before starting
-    echo "Starting instance with DISPLAY=${DISPLAY:-unset}, XAUTHORITY=${XAUTHORITY:-unset}"
+    # Enhanced debug display information before starting with Wayland support
+    if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
+        echo "Starting instance in Wayland session:"
+        echo "  WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-unset}"
+        echo "  XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-unset}"
+        echo "  XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-unset}"
+        echo "  DISPLAY=${DISPLAY:-unset} (may be used as fallback)"
+    else
+        echo "Starting instance in X11 session:"
+        echo "  DISPLAY=${DISPLAY:-unset}"
+        echo "  XAUTHORITY=${XAUTHORITY:-unset}"
+    fi
     
     # Validate sandbox path mapping for consistency
     local sandbox_home="${SANDBOX_BASE}/${instance_name}"
@@ -316,8 +326,14 @@ start_instance() {
             echo \"  REPL: \$REPL_PORT\"
             echo \"  Playwright: \$PLAYWRIGHT_PORT\"
             
-            # Set Electron flags to prevent common graphics issues
-            export ELECTRON_FLAGS=\"--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader\"
+            # Set Electron flags with Wayland/X11 compatibility for Ubuntu 24.04
+            if [ -n \"\${WAYLAND_DISPLAY:-}\" ] || [ \"\${XDG_SESSION_TYPE:-}\" = \"wayland\" ]; then
+                echo \"Configuring Electron for Wayland session\"
+                export ELECTRON_FLAGS=\"--no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader --ozone-platform=wayland --enable-features=WaylandWindowDecorations\"
+            else
+                echo \"Configuring Electron for X11 session\"
+                export ELECTRON_FLAGS=\"--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader\"
+            fi
             
             # Check if preload script exists in either location
             if [ -f \"\$HOME/.config/Claude/electron/preload.js\" ]; then
@@ -423,8 +439,14 @@ start_instance() {
             echo \"  REPL: \$REPL_PORT\"
             echo \"  Playwright: \$PLAYWRIGHT_PORT\"
             
-            # Set Electron flags to prevent common graphics issues
-            export ELECTRON_FLAGS=\"--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader\"
+            # Set Electron flags with Wayland/X11 compatibility for Ubuntu 24.04
+            if [ -n \"\${WAYLAND_DISPLAY:-}\" ] || [ \"\${XDG_SESSION_TYPE:-}\" = \"wayland\" ]; then
+                echo \"Configuring Electron for Wayland session\"
+                export ELECTRON_FLAGS=\"--no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader --ozone-platform=wayland --enable-features=WaylandWindowDecorations\"
+            else
+                echo \"Configuring Electron for X11 session\"
+                export ELECTRON_FLAGS=\"--disable-gpu --no-sandbox --disable-dev-shm-usage --enable-unsafe-swiftshader\"
+            fi
             
             # Check if preload script exists in either location
             if [ -f \"\$HOME/.config/Claude/electron/preload.js\" ]; then
