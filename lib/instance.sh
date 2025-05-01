@@ -257,7 +257,7 @@ start_instance() {
         echo "Setting up MCP configuration with unique ports..."
         # Load port management module if not already loaded
         if ! command -v configure_mcp_ports &>/dev/null; then
-            source "${SCRIPT_DIR}/lib/mcp_ports.sh"
+            source "${SCRIPT_DIR}/mcp_ports.sh"
         fi
         configure_mcp_ports "$instance_name"
     fi
@@ -607,7 +607,7 @@ remove_instance() {
         echo "Port allocation for instance '$instance_name' released."
     else
         # Load port management module if not already loaded
-        source "${SCRIPT_DIR}/lib/mcp_ports.sh"
+        source "${SCRIPT_DIR}/mcp_ports.sh"
         release_port_range "$instance_name"
         echo "Port allocation for instance '$instance_name' released."
     fi

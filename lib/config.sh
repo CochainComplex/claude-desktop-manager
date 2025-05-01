@@ -170,7 +170,7 @@ configure_mcp_ports() {
     
     # Load port management module if not already loaded
     if ! command -v get_port_base &>/dev/null; then
-        source "${SCRIPT_DIR}/lib/mcp_ports.sh"
+        source "${SCRIPT_DIR}/mcp_ports.sh"
     fi
     
     # Allocate port range if not already allocated
@@ -200,7 +200,7 @@ reset_mcp_ports() {
     
     # Load port management module if not already loaded
     if ! command -v release_port_range &>/dev/null; then
-        source "${SCRIPT_DIR}/lib/mcp_ports.sh"
+        source "${SCRIPT_DIR}/mcp_ports.sh"
     fi
     
     # Release allocated port range
@@ -245,121 +245,55 @@ configure_mcp_auto_approve() {
         template_dir="${SCRIPT_DIR}/../templates"
     fi
     
-    # Auto approve JS file content as fallback
-    local auto_approve_js_content='// Auto approve script for MCP tools - Created by Claude Desktop Manager
-// Derived from the original emsi/claude-desktop project
-
-// Array of trusted tool names.
-// If empty ALL tools are accepted!
-const trustedTools = [
-/*
-    "list-allowed-directories",
-    "list-denied-directories",
-    "ls"
-*/
-];
-
-// Cooldown tracking
-let lastClickTime = 0;
-const COOLDOWN_MS = 1000; // 1 second cooldown
-
-const observer = new MutationObserver((mutations) => {
-    // Check if we're still in cooldown
-    const now = Date.now();
-    if (now - lastClickTime < COOLDOWN_MS) {
-        console.log("🕒 Still in cooldown period, skipping...");
-        return;
-    }
-
-    console.log("🔍 Checking mutations...");
-    
+    # Check if the template file exists
+    if [ -f "${template_dir}/mcp-auto-approve.js" ]; then
+        # Copy the template file to the sandbox
+        cp -f "${template_dir}/mcp-auto-approve.js" "${electron_dir}/mcp-auto-approve.js"
+        echo "✓ Copied MCP auto-approve script from template"
+    else
+        # Create a simple auto-approve script as fallback
+        cat > "${electron_dir}/mcp-auto-approve.js" << 'EOF'
+// Simple auto-approve script for MCP tools
+const observer = new MutationObserver(function(mutations) {
     const dialog = document.querySelector("[role=\"dialog\"]");
     if (!dialog) return;
-
-    const buttonWithDiv = dialog.querySelector("button div");
-    if (!buttonWithDiv) return;
-
-    const toolText = buttonWithDiv.textContent;
-    if (!toolText) return;
-
-    console.log("📝 Found tool request:", toolText);
     
-    const toolName = toolText.match(/Run (\\S+) from/)?.[1];
-    if (!toolName) return;
-
-    console.log("🛠️ Tool name:", toolName);
+    const allowButton = Array.from(dialog.querySelectorAll("button"))
+        .find(function(button) { return button.textContent.includes("Allow for This Chat"); });
     
-    if (trustedTools.length === 0 || trustedTools.includes(toolName)) {
-        const allowButton = Array.from(dialog.querySelectorAll("button"))
-            .find(button => button.textContent.includes("Allow for This Chat"));
-        
-        if (allowButton) {
-            console.log("🚀 Auto-approving tool:", toolName);
-            lastClickTime = now; // Set cooldown
-            allowButton.click();
-        }
-    } else {
-        console.log("❌ Tool not in trusted list:", toolName);
+    if (allowButton) {
+        console.log("Auto-approving MCP tool");
+        allowButton.click();
     }
 });
 
-// Start observing
-console.log("👀 Starting observer for trusted tools:", trustedTools);
+console.log("Starting MCP auto-approve observer");
 observer.observe(document.body, {
     childList: true,
     subtree: true
-});'
-    
-    # Copy or create the auto-approve script using utility function
-    copy_or_create_template "${template_dir}/mcp-auto-approve.js" "${electron_dir}/mcp-auto-approve.js" "$auto_approve_js_content" "auto-approve script"
+});
+EOF
+        echo "✓ Created fallback MCP auto-approve script"
+    fi
     
     # Create init script to inject the auto-approver
-    cat > "${electron_dir}/init.js" <<EOF
+    cat > "${electron_dir}/init.js" << 'EOF'
 // Claude Desktop MCP Auto-Approval Initializer
 const fs = require('fs');
 const path = require('path');
 
 try {
-  // Check if we're in the main process with app available
-  if (typeof app !== 'undefined') {
-    // Set up event listener for window creation
-    app.on('browser-window-created', (event, window) => {
-      window.webContents.on('did-finish-load', () => {
-        // Inject auto-approval script
-        const scriptPath = path.join(__dirname, 'mcp-auto-approve.js');
-        if (fs.existsSync(scriptPath)) {
-          const scriptContent = fs.readFileSync(scriptPath, 'utf8');
-          window.webContents.executeJavaScript(scriptContent)
-            .catch(err => console.error('Error injecting MCP auto-approver:', err));
-        }
-      });
-    });
-    console.log('MCP Auto-Approval system initialized from claude-desktop-manager (main process)');
-  } else if (typeof window !== 'undefined' && window.require) {
-    // In renderer process, try to get app via remote
-    try {
-      const { app } = window.require('electron').remote;
-      if (app) {
-        app.on('browser-window-created', (event, browserWindow) => {
-          browserWindow.webContents.on('did-finish-load', () => {
-            // Inject auto-approval script
-            const scriptPath = path.join(__dirname, 'mcp-auto-approve.js');
-            if (fs.existsSync(scriptPath)) {
-              const scriptContent = fs.readFileSync(scriptPath, 'utf8');
-              browserWindow.webContents.executeJavaScript(scriptContent)
-                .catch(err => console.error('Error injecting MCP auto-approver:', err));
-            }
-          });
-        });
-        console.log('MCP Auto-Approval system initialized from claude-desktop-manager (renderer process)');
-      } else {
-        console.log('Could not access app object via remote. Auto-approval may not work properly.');
+  if (typeof window !== 'undefined') {
+    // We're in the renderer process
+    window.addEventListener('DOMContentLoaded', function() {
+      const scriptPath = path.join(__dirname, 'mcp-auto-approve.js');
+      if (fs.existsSync(scriptPath)) {
+        const scriptContent = fs.readFileSync(scriptPath, 'utf8');
+        // Safe evaluation in this context
+        eval(scriptContent);
+        console.log('MCP Auto-Approval system initialized');
       }
-    } catch (remoteError) {
-      console.error('Failed to access remote module:', remoteError);
-    }
-  } else {
-    console.log('Neither app nor window.require is available. Auto-approval will not work in this context.');
+    });
   }
 } catch (error) {
   console.error('Failed to initialize MCP Auto-Approval:', error);

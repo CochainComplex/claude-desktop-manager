@@ -16,16 +16,42 @@ if [ ! -d "${SCRIPT_DIR}/templates" ]; then
 fi
 
 # Load libraries
-source "${SCRIPT_DIR}/lib/utils.sh"       # Load utilities first
-source "${SCRIPT_DIR}/lib/dependencies.sh"
-source "${SCRIPT_DIR}/lib/sandbox.sh"
-source "${SCRIPT_DIR}/lib/installer.sh"
-source "${SCRIPT_DIR}/lib/instance.sh"
-source "${SCRIPT_DIR}/lib/config.sh"
-source "${SCRIPT_DIR}/lib/desktop.sh"
-source "${SCRIPT_DIR}/lib/help.sh"
-source "${SCRIPT_DIR}/lib/patches.sh"
-source "${SCRIPT_DIR}/lib/mcp_ports.sh"
+# Debug the source path
+echo "Sourcing libraries from: ${SCRIPT_DIR}/lib/"
+ls -la "${SCRIPT_DIR}/lib/"
+
+SCRIPT_LIB="${SCRIPT_DIR}/lib"
+echo "Sourcing from: ${SCRIPT_LIB}"
+
+source "${SCRIPT_LIB}/utils.sh"       # Load utilities first
+echo "Sourced utils.sh"
+
+source "${SCRIPT_LIB}/dependencies.sh"
+echo "Sourced dependencies.sh"
+
+source "${SCRIPT_LIB}/sandbox.sh"
+echo "Sourced sandbox.sh"
+
+source "${SCRIPT_LIB}/installer.sh"
+echo "Sourced installer.sh"
+
+source "${SCRIPT_LIB}/instance.sh"
+echo "Sourced instance.sh"
+
+source "${SCRIPT_LIB}/config.sh"
+echo "Sourced config.sh"
+
+source "${SCRIPT_LIB}/desktop.sh"
+echo "Sourced desktop.sh"
+
+source "${SCRIPT_LIB}/help.sh"
+echo "Sourced help.sh"
+
+source "${SCRIPT_LIB}/patches.sh"
+echo "Sourced patches.sh"
+
+source "${SCRIPT_LIB}/mcp_ports.sh"
+echo "Sourced mcp_ports.sh"
 
 # Check for basic dependencies
 if ! check_dependencies; then

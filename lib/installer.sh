@@ -1,6 +1,12 @@
 #!/bin/bash
 # installer.sh - Installation and caching utilities for Claude Desktop Manager
 
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source utility functions
+source "${SCRIPT_DIR}/utils.sh"
+
 # Set up logging
 log_message() {
     local level="$1"
@@ -35,6 +41,7 @@ log_error() { log_message "ERROR" "$1"; }
 # 
 # Derived from the original emsi/claude-desktop project but modified to use
 # local scripts instead of cloning the repository
+# @param build_format The format of the package to build (deb or appimage)
 build_and_cache_claude() {
     local build_format="${1:-deb}"
     local cache_dir="${CMGR_CACHE}"
@@ -54,7 +61,7 @@ build_and_cache_claude() {
         log_error "Could not find scripts directory"
         rm -rf "$build_dir"
         return 1
-    }
+    fi
     
     log_info "Using local scripts from: ${script_dir}"
     
@@ -680,7 +687,7 @@ install_claude_in_sandbox() {
     if [ -z "$scripts_dir" ]; then
         log_warn "Could not find scripts directory, using fallbacks"
         scripts_dir="${SCRIPT_DIR}/../scripts"
-    }
+    fi
     
     if [ -f "${scripts_dir}/patch-app.js" ]; then
         cp -f "${scripts_dir}/patch-app.js" "${sandbox_home}/.config/claude-desktop/"
