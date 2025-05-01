@@ -47,10 +47,7 @@ Even with these fixes, there may still be some limitations:
    ```
    before starting Claude Desktop to allow local connections to the X server.
 
-2. **Additional Isolation**: For complete isolation, you can use the fix-home-access.sh script:
-   ```bash
-   ./cmgr execute <instance-name> /home/claude/fix-home-access.sh
-   ```
+2. **Additional Isolation**: The improved sandbox isolation is now built directly into the sandbox.sh module and does not require a separate script.
 
 3. **Creating New Instances**: Always prefer to create fresh instances rather than modifying existing ones:
    ```bash
@@ -66,7 +63,7 @@ To verify that the sandbox is properly isolated:
    ✓ Cannot access real user's home directory (expected behavior)
    ```
 
-2. If you still see access to the real home directory, try using the fix-home-access.sh script.
+2. If you still see access to the real home directory, create a new instance which will use the improved isolation.
 
 3. Check that all paths in MCP configs use `/home/claude` rather than `/home/${SUDO_USER:-$(whoami)}`.
 

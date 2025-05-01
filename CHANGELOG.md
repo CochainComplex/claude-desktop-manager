@@ -1,5 +1,13 @@
 # Changelog
 
+## 2025-05-01 (v0.2.2)
+### Changed
+- Simplified codebase by removing redundant fix files
+- Consolidated listener warning fixes into preload.js
+- Removed deprecated fix-home-access.sh (functionality now in sandbox.sh)
+- Removed unused install-fix.sh (functionality now in installer.sh)
+- Updated documentation to reflect consolidated approach
+
 ## 2025-04-25 (v0.2.1)
 ### Fixed
 - Added comprehensive graphics fixes including:

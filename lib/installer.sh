@@ -57,9 +57,13 @@ build_and_cache_claude() {
     
     log_info "Using install-claude-desktop.sh to build Claude Desktop..."
     
-    # Modify the script to only build and not install
+    # Modify the script to only build and not install, and make it version-agnostic
     if ! (cd "$build_dir" && chmod +x ./install-claude-desktop.sh && \
          sed -i 's/sudo dpkg -i "$DEB_FILE"/echo "Package built at: $DEB_FILE"/g' ./install-claude-desktop.sh && \
+         # Make the nupkg extraction version-agnostic
+         sed -i 's/AnthropicClaude-[0-9.]\+-full\.nupkg/$(find . -name "*.nupkg" | head -1)/g' ./install-claude-desktop.sh && \
+         # Also modify the specific 7z extraction command to use find
+         sed -i 's/7z x -y "AnthropicClaude-.*\.nupkg"/7z x -y $(find . -name "*.nupkg" | head -1)/g' ./install-claude-desktop.sh && \
          ./install-claude-desktop.sh); then
         log_error "Failed to build Claude Desktop."
         rm -rf "$build_dir"

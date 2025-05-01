@@ -199,7 +199,7 @@ If you still experience this warning, you can:
 
 2. Manually apply the fix to an existing instance:
    ```bash
-   cmgr execute my-instance 'node ~/.config/claude-desktop/fix-listeners.js ~/.local/share/claude-desktop'
+   cmgr fix-warnings my-instance
    ```
 
 ## Application Patching

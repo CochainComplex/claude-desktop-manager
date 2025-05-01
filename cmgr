@@ -168,12 +168,18 @@ cmd_fix_warnings() {
         scripts_dir="${template_dir}"
     fi
     
-    # Create the fix-listeners.js script directly to avoid path issues
-    local fix_listeners_script="${sandbox_home}/.config/claude-desktop/fix-listeners.js"
-    echo "Creating fix-listeners.js at ${fix_listeners_script}"
+    # Use the preload.js script for fixing MaxListenersExceededWarning
+    local preload_script="${sandbox_home}/.config/claude-desktop/preload.js"
+    echo "Setting up preload.js at ${preload_script}"
     
-    # Write the script content directly
-    cat > "$fix_listeners_script" << 'EOF'
+    # Check if preload.js template exists in templates directory
+    if [ -f "${template_dir}/scripts/preload.js" ]; then
+        cp "${template_dir}/scripts/preload.js" "${preload_script}"
+        echo "Copied preload.js from template"
+    else
+        # Create the script directly as fallback
+        echo "Creating preload.js directly"
+        cat > "$preload_script" << 'EOF'
 // Node.js script to patch Electron app code to fix MaxListenersExceededWarning
 const fs = require('fs');
 const path = require('path');
@@ -406,8 +412,9 @@ console.log('CMGR: Applied MaxListenersExceededWarning fix');
 // Run the patching process
 patchAppFiles();
 EOF
+    fi
     
-    chmod +x "$fix_listeners_script"
+    chmod +x "$preload_script"
     
     # Create the preload script directly
     local preload_script="${sandbox_home}/.config/claude-desktop/preload.js"
@@ -572,24 +579,36 @@ EOF
     # Copy the content to the second location
     cp -f "$preload_script" "$preload_script2"
     
-    # Run the fix-listeners.js script
+    # Configure preload.js script for MaxListenersExceededWarning fix
     run_in_sandbox "$instance_name" bash -c "
-        echo 'Running fix-listeners.js script...'
-        
-        # First check if nodejs is installed
-        if ! command -v node &>/dev/null; then
-            echo 'Installing Node.js for patching...'
-            mkdir -p ~/.local/share/nodejs
-            curl -sL https://nodejs.org/dist/v18.16.0/node-v18.16.0-linux-x64.tar.gz | tar xz -C ~/.local/share/nodejs --strip-components=1
-            export PATH=~/.local/share/nodejs/bin:\$PATH
-        fi
-        
-        # For deb installations
-        if [ -d ~/.local/share/claude-desktop ] || [ -x ~/.local/bin/claude-desktop ]; then
-            APP_DIR=\$(readlink -f ~/.local/share/claude-desktop || echo ~/.local/bin)
-            echo \"Patching \$APP_DIR...\"
-            node ~/.config/claude-desktop/fix-listeners.js \$APP_DIR
-        fi
+    echo 'Setting up preload.js configuration...'
+    
+    # Ensure preload script exists in both locations
+    if [ -f ~/.config/claude-desktop/preload.js ]; then
+    mkdir -p ~/.config/Claude/electron
+    cp -f ~/.config/claude-desktop/preload.js ~/.config/Claude/electron/preload.js
+    echo 'Copied preload.js to electron directory'
+    fi
+    
+    # For deb installations - ensure proper configuration to use preload script
+    if [ -d ~/.local/share/claude-desktop ] || [ -x ~/.local/bin/claude-desktop ]; then
+        # Ensure application is configured to use the preload script
+    mkdir -p ~/.config/Claude
+    CONFIG_FILE=~/.config/Claude/claude_desktop_config.json
+    
+        # Create or update the configuration file
+                if [ -f "\$CONFIG_FILE" ]; then
+                    echo 'Updating existing Claude configuration to use preload script'
+                    # Use sed to update or add the electronInitScript setting
+                    sed -i 's|"electronInitScript":.*|"electronInitScript": "$HOME/.config/Claude/electron/preload.js",|g' "\$CONFIG_FILE"
+                    if ! grep -q "electronInitScript" "\$CONFIG_FILE"; then
+                        sed -i 's|{|{"electronInitScript": "$HOME/.config/Claude/electron/preload.js",|g' "\$CONFIG_FILE"
+                    fi
+                else
+                    echo 'Creating new Claude configuration with preload script'
+                    echo '{"electronInitScript": "$HOME/.config/Claude/electron/preload.js"}' > "\$CONFIG_FILE"
+                fi
+            fi
         
         # For AppImage installations
         APPIMAGE=\$(find ~/Downloads -name '*.AppImage' | head -1)
