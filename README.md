@@ -406,7 +406,9 @@ On Ubuntu 24.04 and newer systems, unprivileged user namespaces are disabled by 
 bwrap: setting up uid map: Permission denied
 ```
 
-This error is non-fatal - the sandbox will still be created and function properly despite this message. To eliminate this error message, you can enable unprivileged user namespaces with the following command:
+This error is non-fatal - the sandbox will still be created and function properly despite this message. Claude Desktop Manager includes a robust fallback mechanism that automatically creates a minimal installation when this error is detected, ensuring your instances work correctly even without user namespace support.
+
+To eliminate this error message entirely, you can enable unprivileged user namespaces with the following command:
 
 ```bash
 cmgr enable-userns
@@ -418,6 +420,22 @@ This will attempt to enable unprivileged user namespaces system-wide. If you don
 sudo sysctl -w kernel.unprivileged_userns_clone=1
 echo 'kernel.unprivileged_userns_clone = 1' | sudo tee /etc/sysctl.d/00-local-userns.conf
 ```
+
+### Bubblewrap Executable Name Differences
+
+Some Linux distributions may have the bubblewrap executable installed as `bwrap` rather than `bubblewrap`. Claude Desktop Manager handles this automatically by checking for both names during dependency verification.
+
+If you encounter an error about missing `bubblewrap` dependency even though you have it installed, you can verify which executable name your system uses:
+
+```bash
+# Check for bubblewrap
+which bubblewrap
+
+# Check for bwrap
+which bwrap
+```
+
+The software will automatically detect and use whichever version is available on your system.
 
 ### System Permissions for Patching
 

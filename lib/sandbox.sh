@@ -237,7 +237,7 @@ run_in_sandbox() {
     
     echo "Display info: DISPLAY=${DISPLAY:-:0}, XAUTHORITY=${XAUTHORITY}, WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-unset}"
     
-    # Base bubblewrap command - CHANGED: use different home path inside sandbox
+    # Base bwrap command - CHANGED: use different home path inside sandbox
     local bwrap_cmd=(
         bwrap
         --proc /proc

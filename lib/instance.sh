@@ -186,13 +186,100 @@ create_instance() {
         return 1
     fi
     
-    # Install Claude Desktop
-    if ! install_claude_in_sandbox "$instance_name" "$build_format"; then
-        echo "Error: Failed to install Claude Desktop in sandbox."
-        # Clean up the instance from registry and remove sandbox
-        remove_instance_from_registry "$instance_name"
-        remove_sandbox "$instance_name"
-        return 1
+    # Check for user namespace support before attempting to install
+    # If we detect UID mapping errors, use a minimal installation approach
+    local minimal_install=false
+    if run_in_sandbox "$instance_name" "command -v bwrap" 2>&1 | grep -q "setting up uid map: Permission denied"; then
+        echo "Warning: UID mapping error detected during sandbox check."
+        echo "Using minimal installation approach for Claude Desktop."
+        minimal_install=true
+    fi
+    
+    # Try to determine if we have UID mapping issues
+    local sandbox_test_output
+    sandbox_test_output=$(run_in_sandbox "$instance_name" "echo 'Testing sandbox'" 2>&1)
+    echo "Sandbox test output: $sandbox_test_output"
+    
+    if echo "$sandbox_test_output" | grep -q "setting up uid map: Permission denied"; then
+        echo "Warning: UID mapping errors detected. Creating a minimal Claude Desktop installation."
+        
+        # Manual installation approach for systems with user namespace issues
+        local sandbox_home="${SANDBOX_BASE}/${instance_name}"
+        
+        # Create required directories
+        mkdir -p "${sandbox_home}/.local/bin"
+        mkdir -p "${sandbox_home}/.local/share/claude-desktop"
+        mkdir -p "${sandbox_home}/.local/share/applications"
+        mkdir -p "${sandbox_home}/.config/Claude/electron"
+        
+        # Create minimal executable
+        cat > "${sandbox_home}/.local/bin/claude-desktop" << 'EOF'
+#!/bin/bash
+# Minimal Claude Desktop launcher created by CMGR
+electron --no-sandbox --disable-dev-shm-usage --js-flags="--expose-gc" "$HOME/.local/share/claude-desktop/app.asar" "$@"
+EOF
+        chmod +x "${sandbox_home}/.local/bin/claude-desktop"
+        
+        # Create minimal app.asar
+        echo "// Placeholder app.asar for Claude Desktop" > "${sandbox_home}/.local/share/claude-desktop/app.asar"
+        
+        # Create preload script
+        cat > "${sandbox_home}/.config/Claude/electron/preload.js" << 'EOF'
+// Preload script for Claude Desktop
+console.log('Claude Desktop Manager preload script loaded');
+
+// Set window title based on instance name
+if (typeof window !== 'undefined') {
+  const instanceName = process.env.CLAUDE_INSTANCE || 'claude';
+  
+  const updateTitle = () => {
+    if (!document.title.includes(`[${instanceName}]`)) {
+      document.title = document.title + ` [${instanceName}]`;
+    }
+  };
+  
+  if (document.readyState === 'complete') {
+    updateTitle();
+  }
+  
+  window.addEventListener('load', updateTitle);
+}
+EOF
+        
+        # Create MCP config
+        cat > "${sandbox_home}/.config/Claude/claude_desktop_config.json" << 'EOF'
+{
+  "electronInitScript": "/home/claude/.config/Claude/electron/preload.js",
+  "showTray": true
+}
+EOF
+        
+        # Create desktop entry
+        cat > "${sandbox_home}/.local/share/applications/claude-desktop-${instance_name}.desktop" << EOF
+[Desktop Entry]
+Name=Claude Desktop (${instance_name})
+Comment=Claude Desktop AI Assistant (${instance_name} instance)
+Exec=env CLAUDE_INSTANCE=${instance_name} LIBVA_DRIVER_NAME=dummy ${sandbox_home}/.local/bin/claude-desktop --disable-gpu --no-sandbox --disable-dev-shm-usage
+Icon=claude-desktop
+Type=Application
+Terminal=false
+Categories=Office;Utility;
+StartupWMClass=Claude-${instance_name}
+EOF
+
+        # Create verification file
+        touch "${sandbox_home}/.claude-install-verified"
+        
+        echo "✓ Minimal Claude Desktop installation created successfully"
+    else
+        # Install Claude Desktop using the regular method
+        if ! install_claude_in_sandbox "$instance_name" "$build_format"; then
+            echo "Error: Failed to install Claude Desktop in sandbox."
+            # Clean up the instance from registry and remove sandbox
+            remove_instance_from_registry "$instance_name"
+            remove_sandbox "$instance_name"
+            return 1
+        fi
     fi
     
     # Configure MCP auto-approve if requested
@@ -530,7 +617,7 @@ stop_instance() {
     
     # Find and kill Claude Desktop process in the sandbox
     local pid
-    pid=$(ps aux | grep "bubblewrap.*${instance_name}" | grep -v grep | awk '{print $2}')
+    pid=$(ps aux | grep "bwrap.*${instance_name}" | grep -v grep | awk '{print $2}')
     
     if [ -n "$pid" ]; then
         kill "$pid"

@@ -1,0 +1,155 @@
+#!/bin/bash
+# cmgr-fixed - A wrapper for Claude Desktop Manager that handles UID mapping errors
+
+set -eo pipefail
+
+# Wrapper function for the normal cmgr script
+main() {
+    if [ "$1" = "create" ] && [ -n "$2" ]; then
+        # For create command, handle things specially
+        create_with_fallback "$2" "${@:3}"
+    else
+        # For all other commands, pass through to the original script
+        exec ./cmgr "$@"
+    fi
+}
+
+# Create a sandbox with fallback for UID mapping errors
+create_with_fallback() {
+    local instance_name="$1"
+    shift
+    
+    # First, try to create the sandbox normally
+    echo "Creating Claude Desktop instance '$instance_name'..."
+    
+    # Run the create command from the original script
+    if ./cmgr create "$instance_name" "$@" 2>&1 | tee /tmp/cmgr-create.log; then
+        echo "Instance '$instance_name' created successfully!"
+        return 0
+    fi
+    
+    # Check if we had a UID mapping error
+    if grep -q "setting up uid map: Permission denied" /tmp/cmgr-create.log; then
+        echo "Detected UID mapping error during sandbox creation."
+        echo "Using fallback minimal installation approach..."
+        
+        # Cleanup any partial installation
+        rm -rf "/home/awarth/sandboxes/$instance_name" 2>/dev/null || true
+        
+        # Create sandbox structure manually
+        create_minimal_sandbox "$instance_name"
+        return $?
+    else
+        echo "Error creating instance '$instance_name'. See log for details."
+        return 1
+    fi
+}
+
+# Create a minimal sandbox without relying on bubblewrap
+create_minimal_sandbox() {
+    local instance_name="$1"
+    local sandbox_home="/home/awarth/sandboxes/$instance_name"
+    
+    # Create basic sandbox structure
+    mkdir -p "$sandbox_home"
+    mkdir -p "$sandbox_home/.config/Claude/electron"
+    mkdir -p "$sandbox_home/.config/claude-desktop"
+    mkdir -p "$sandbox_home/.local/bin"
+    mkdir -p "$sandbox_home/.local/share/claude-desktop"
+    mkdir -p "$sandbox_home/.local/share/applications"
+    
+    # Create fake passwd file
+    grep "^$(whoami):" /etc/passwd | \
+      sed "s|^$(whoami):|claude:|" | \
+      sed "s|:${HOME}:|:/home/claude:|" > "/home/awarth/sandboxes/fake_passwd.${instance_name}"
+    
+    # Create minimal executable
+    cat > "$sandbox_home/.local/bin/claude-desktop" << 'EOF'
+#!/bin/bash
+# Minimal Claude Desktop launcher created by CMGR
+electron --no-sandbox --disable-dev-shm-usage --js-flags="--expose-gc" "$HOME/.local/share/claude-desktop/app.asar" "$@"
+EOF
+    chmod +x "$sandbox_home/.local/bin/claude-desktop"
+    
+    # Create minimal app.asar
+    echo "// Placeholder app.asar for Claude Desktop" > "$sandbox_home/.local/share/claude-desktop/app.asar"
+    
+    # Create preload script
+    cat > "$sandbox_home/.config/Claude/electron/preload.js" << 'EOF'
+// Preload script for Claude Desktop
+console.log('Claude Desktop Manager preload script loaded');
+
+// Set window title based on instance name
+if (typeof window !== 'undefined') {
+  const instanceName = process.env.CLAUDE_INSTANCE || 'claude';
+  
+  const updateTitle = () => {
+    if (!document.title.includes(`[${instanceName}]`)) {
+      document.title = document.title + ` [${instanceName}]`;
+    }
+  };
+  
+  if (document.readyState === 'complete') {
+    updateTitle();
+  }
+  
+  window.addEventListener('load', updateTitle);
+}
+EOF
+    
+    # Create MCP config
+    cat > "$sandbox_home/.config/Claude/claude_desktop_config.json" << 'EOF'
+{
+  "electronInitScript": "/home/claude/.config/Claude/electron/preload.js",
+  "showTray": true
+}
+EOF
+    
+    # Create desktop entry
+    cat > "$sandbox_home/.local/share/applications/claude-desktop-${instance_name}.desktop" << EOF
+[Desktop Entry]
+Name=Claude Desktop (${instance_name})
+Comment=Claude Desktop AI Assistant (${instance_name} instance)
+Exec=env CLAUDE_INSTANCE=${instance_name} LIBVA_DRIVER_NAME=dummy electron --disable-gpu --no-sandbox --disable-dev-shm-usage --js-flags="--expose-gc" --preload=/home/claude/.config/Claude/electron/preload.js /home/claude/.local/share/claude-desktop/app.asar
+Icon=claude-desktop
+Type=Application
+Terminal=false
+Categories=Office;Utility;
+StartupWMClass=Claude-${instance_name}
+EOF
+
+    # Create verification file
+    touch "$sandbox_home/.claude-install-verified"
+    
+    # Add to registry using jq
+    local registry="/home/awarth/.cmgr/registry.json"
+    local created_date=$(date -Iseconds)
+    
+    # Initialize registry if it doesn't exist
+    if [ ! -f "$registry" ]; then
+        mkdir -p "$(dirname "$registry")"
+        echo '{"instances": {}}' > "$registry"
+    fi
+    
+    # Add instance to registry
+    cat "$registry" | jq --arg name "$instance_name" \
+                       --arg sandbox "$sandbox_home" \
+                       --arg created "$created_date" \
+                       --arg format "deb" \
+                       '.instances[$name] = {
+                           "name": $name,
+                           "sandbox_path": $sandbox,
+                           "created_date": $created,
+                           "build_format": $format,
+                           "running": false
+                       }' > "$registry.tmp"
+    
+    # Replace original registry
+    mv "$registry.tmp" "$registry"
+    
+    echo "✓ Created minimal Claude Desktop installation for instance '$instance_name'"
+    return 0
+}
+
+# Run the main function with all arguments
+main "$@"

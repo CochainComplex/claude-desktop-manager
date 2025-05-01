@@ -1073,7 +1073,7 @@ cmd_enable_userns() {
         fi
     fi
     
-    # Check if bubblewrap is using --no-userns flag anywhere
+    # Check if bwrap is using --no-userns flag anywhere
     if grep -q -- "--no-userns" "${SCRIPT_DIR}/lib/sandbox.sh" 2>/dev/null; then
         echo
         echo "Warning: The sandbox code is using '--no-userns' flag which disables user namespace support."

@@ -259,7 +259,7 @@ check_dependencies() {
     # Map of dependency types and their associated packages
     local -A dep_map=(
         # Basic dependencies always needed
-        ["bubblewrap"]="bubblewrap"
+        ["bwrap"]="bubblewrap"
         ["jq"]="jq"
         ["git"]="git"
         
@@ -278,7 +278,7 @@ check_dependencies() {
     )
     
     # Check basic dependencies by default
-    local basic_deps=("bubblewrap" "jq" "git")
+    local basic_deps=("bwrap" "jq" "git")
     
     # Build dependencies needed for package creation
     local build_deps=("7z" "wget" "wrestool" "icotool" "dpkg-deb")

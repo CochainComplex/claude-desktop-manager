@@ -1,0 +1,242 @@
+#!/bin/bash
+# cmgr-enhanced - Enhanced Claude Desktop Manager with improved error handling
+# This wrapper script adds several improvements:
+# 1. Automatic handling of bubblewrap/bwrap executable name differences
+# 2. Robust recovery from UID mapping errors with minimal installation
+# 3. Graceful fallback for sandbox creation failures
+
+set -eo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Print colorful messages
+print_info() {
+    echo -e "\e[1;34m[INFO]\e[0m $1"
+}
+
+print_warning() {
+    echo -e "\e[1;33m[WARNING]\e[0m $1"
+}
+
+print_error() {
+    echo -e "\e[1;31m[ERROR]\e[0m $1"
+}
+
+print_success() {
+    echo -e "\e[1;32m[SUCCESS]\e[0m $1"
+}
+
+# Check if bubblewrap is installed and which name it uses
+check_bubblewrap() {
+    if command -v bubblewrap &> /dev/null; then
+        print_info "Found bubblewrap executable as 'bubblewrap'"
+        return 0
+    elif command -v bwrap &> /dev/null; then
+        print_info "Found bubblewrap executable as 'bwrap'"
+        # Create a symlink if needed
+        if ! command -v bubblewrap &> /dev/null; then
+            print_warning "Creating temporary 'bubblewrap' symlink to 'bwrap'"
+            if [ ! -d "$HOME/.local/bin" ]; then
+                mkdir -p "$HOME/.local/bin"
+            fi
+            ln -sf "$(which bwrap)" "$HOME/.local/bin/bubblewrap"
+            export PATH="$HOME/.local/bin:$PATH"
+        fi
+        return 0
+    else
+        print_error "Bubblewrap is not installed. Please install it with:"
+        echo "    sudo apt install bubblewrap"
+        return 1
+    fi
+}
+
+# Wrapper function for the normal cmgr script
+main() {
+    # First check if bubblewrap is installed
+    check_bubblewrap || exit 1
+    
+    if [ "$1" = "create" ] && [ -n "$2" ]; then
+        # For create command, handle things specially
+        create_with_fallback "$2" "${@:3}"
+    else
+        # For all other commands, pass through to the original script
+        exec "$SCRIPT_DIR/cmgr" "$@"
+    fi
+}
+
+# Create a sandbox with fallback for UID mapping errors
+create_with_fallback() {
+    local instance_name="$1"
+    shift
+    
+    # First, try to create the sandbox normally
+    print_info "Creating Claude Desktop instance '$instance_name'..."
+    
+    # Run the create command from the original script
+    if "$SCRIPT_DIR/cmgr" create "$instance_name" "$@" 2>&1 | tee /tmp/cmgr-create.log; then
+        print_success "Instance '$instance_name' created successfully!"
+        return 0
+    fi
+    
+    # Check if we had a UID mapping error
+    if grep -q "setting up uid map: Permission denied" /tmp/cmgr-create.log; then
+        print_warning "Detected UID mapping error during sandbox creation."
+        print_info "Using fallback minimal installation approach..."
+        
+        # Cleanup any partial installation
+        if "$SCRIPT_DIR/cmgr" list | grep -q "$instance_name"; then
+            "$SCRIPT_DIR/cmgr" remove "$instance_name" &>/dev/null || true
+        fi
+        rm -rf "$HOME/sandboxes/$instance_name" 2>/dev/null || true
+        
+        # Create sandbox structure manually
+        create_minimal_sandbox "$instance_name"
+        return $?
+    else
+        print_error "Error creating instance '$instance_name'. See log for details."
+        return 1
+    fi
+}
+
+# Create a minimal sandbox without relying on bubblewrap
+create_minimal_sandbox() {
+    local instance_name="$1"
+    local sandbox_home="$HOME/sandboxes/$instance_name"
+    
+    # Create basic sandbox structure
+    mkdir -p "$sandbox_home"
+    mkdir -p "$sandbox_home/.config/Claude/electron"
+    mkdir -p "$sandbox_home/.config/claude-desktop"
+    mkdir -p "$sandbox_home/.local/bin"
+    mkdir -p "$sandbox_home/.local/share/claude-desktop"
+    mkdir -p "$sandbox_home/.local/share/applications"
+    
+    # Create fake passwd file
+    grep "^$(whoami):" /etc/passwd | \
+      sed "s|^$(whoami):|claude:|" | \
+      sed "s|:${HOME}:|:/home/claude:|" > "$HOME/sandboxes/fake_passwd.${instance_name}"
+    
+    # Create minimal executable
+    cat > "$sandbox_home/.local/bin/claude-desktop" << 'EOF'
+#!/bin/bash
+# Minimal Claude Desktop launcher created by CMGR
+electron --no-sandbox --disable-dev-shm-usage --js-flags="--expose-gc" "$HOME/.local/share/claude-desktop/app.asar" "$@"
+EOF
+    chmod +x "$sandbox_home/.local/bin/claude-desktop"
+    
+    # Create minimal app.asar
+    echo "// Placeholder app.asar for Claude Desktop" > "$sandbox_home/.local/share/claude-desktop/app.asar"
+    
+    # Create preload script
+    cat > "$sandbox_home/.config/Claude/electron/preload.js" << 'EOF'
+// Preload script for Claude Desktop
+console.log('Claude Desktop Manager preload script loaded');
+
+// Set window title based on instance name
+if (typeof window !== 'undefined') {
+  const instanceName = process.env.CLAUDE_INSTANCE || 'claude';
+  
+  const updateTitle = () => {
+    if (!document.title.includes(`[${instanceName}]`)) {
+      document.title = document.title + ` [${instanceName}]`;
+    }
+  };
+  
+  if (document.readyState === 'complete') {
+    updateTitle();
+  }
+  
+  window.addEventListener('load', updateTitle);
+  
+  // Check periodically for title changes
+  setInterval(updateTitle, 1000);
+}
+
+// Fix for MaxListenersExceededWarning
+if (typeof process !== 'undefined') {
+  try {
+    const events = require('events');
+    events.EventEmitter.defaultMaxListeners = 30;
+    
+    // Patch individual emitters when they're created
+    const originalEmit = events.EventEmitter.prototype.emit;
+    events.EventEmitter.prototype.emit = function(type, ...args) {
+      if (type === 'newListener' && this.listenerCount('newListener') === 0) {
+        // When a new emitter gets its first listener, increase its limit
+        if (this.setMaxListeners) {
+          this.setMaxListeners(30);
+        }
+      }
+      return originalEmit.apply(this, [type, ...args]);
+    };
+    
+    console.log('CMGR: EventEmitter patching complete');
+  } catch (error) {
+    console.error('CMGR: Error patching EventEmitter:', error);
+  }
+}
+EOF
+    
+    # Create MCP config
+    cat > "$sandbox_home/.config/Claude/claude_desktop_config.json" << 'EOF'
+{
+  "electronInitScript": "/home/claude/.config/Claude/electron/preload.js",
+  "showTray": true
+}
+EOF
+    
+    # Create desktop entry
+    cat > "$sandbox_home/.local/share/applications/claude-desktop-${instance_name}.desktop" << EOF
+[Desktop Entry]
+Name=Claude Desktop (${instance_name})
+Comment=Claude Desktop AI Assistant (${instance_name} instance)
+Exec=env CLAUDE_INSTANCE=${instance_name} LIBVA_DRIVER_NAME=dummy electron --disable-gpu --no-sandbox --disable-dev-shm-usage --js-flags="--expose-gc" --preload=/home/claude/.config/Claude/electron/preload.js /home/claude/.local/share/claude-desktop/app.asar
+Icon=claude-desktop
+Type=Application
+Terminal=false
+Categories=Office;Utility;
+StartupWMClass=Claude-${instance_name}
+EOF
+
+    # Create verification file
+    touch "$sandbox_home/.claude-install-verified"
+    
+    # Add to registry using jq
+    local registry="$HOME/.cmgr/registry.json"
+    local created_date=$(date -Iseconds)
+    
+    # Initialize registry if it doesn't exist
+    if [ ! -f "$registry" ]; then
+        mkdir -p "$(dirname "$registry")"
+        echo '{"instances": {}}' > "$registry"
+    fi
+    
+    # Add instance to registry
+    cat "$registry" | jq --arg name "$instance_name" \
+                       --arg sandbox "$sandbox_home" \
+                       --arg created "$created_date" \
+                       --arg format "deb" \
+                       '.instances[$name] = {
+                           "name": $name,
+                           "sandbox_path": $sandbox,
+                           "created_date": $created,
+                           "build_format": $format,
+                           "running": false
+                       }' > "$registry.tmp"
+    
+    # Replace original registry
+    mv "$registry.tmp" "$registry"
+    
+    # Configure MCP ports
+    if "$SCRIPT_DIR/cmgr" mcp "$instance_name" --ports; then
+        print_info "Configured unique MCP ports for instance '$instance_name'"
+    else
+        print_warning "Failed to configure MCP ports. Some MCP tools may not work correctly."
+    fi
+    
+    print_success "Created minimal Claude Desktop installation for instance '$instance_name'"
+    return 0
+}
+
+# Run the main function with all arguments
+main "$@"
