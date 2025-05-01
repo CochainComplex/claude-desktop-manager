@@ -303,7 +303,7 @@ check_dependencies() {
         if ! check_command "$cmd"; then
             missing_deps+=("${dep_map[$cmd]}")
         fi
-    fi
+    done
     
     # If any dependencies are missing, print a message and return error
     if [ ${#missing_deps[@]} -gt 0 ]; then
