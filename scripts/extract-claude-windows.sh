@@ -37,10 +37,49 @@ if ! 7z x -y "$EXTRACT_DIR/Claude-Setup-x64.exe" > /dev/null; then
 fi
 
 # Find and extract the .nupkg file
+echo "📦 Searching for .nupkg file..."
+
+# First try looking inside the .rsrc directory if it exists
+if [ -d "$EXTRACT_DIR/.rsrc/DATA" ]; then
+    echo "Looking in .rsrc/DATA directory..."
+    DATA_FILES=$(find "$EXTRACT_DIR/.rsrc/DATA" -type f -name "*" | sort)
+    
+    # Look through each data file for a zip format that might contain the nupkg
+    for data_file in $DATA_FILES; do
+        echo "Checking data file: $(basename "$data_file")"
+        if file "$data_file" | grep -q "Zip archive"; then
+            echo "Found ZIP format in data file: $(basename "$data_file")"
+            if ! 7z x -y "$data_file" > /dev/null; then
+                echo "⚠️ Warning: Failed to extract from $(basename "$data_file"), trying other methods"
+            else
+                echo "✓ Extracted ZIP data file successfully"
+            fi
+        fi
+    done
+fi
+
+# Now look for any .nupkg files in the extract directory
 NUPKG_FILE=$(find "$EXTRACT_DIR" -name "*.nupkg" | head -1)
 if [ -z "$NUPKG_FILE" ]; then
-    echo "❌ Failed to find .nupkg file"
-    exit 1
+    echo "⚠️ No .nupkg file found directly, looking for any zip format files that might contain it"
+    
+    # Try looking for zip files
+    ZIP_FILES=$(find "$EXTRACT_DIR" -type f -exec file {} \; | grep "Zip archive" | cut -d":" -f1)
+    for zip_file in $ZIP_FILES; do
+        echo "Attempting to extract from potential zip file: $(basename "$zip_file")"
+        if ! 7z x -y "$zip_file" > /dev/null; then
+            echo "⚠️ Warning: Failed to extract from $(basename "$zip_file")"
+        else
+            echo "✓ Extracted zip file successfully"
+        fi
+    done
+    
+    # Check again for nupkg after extraction attempts
+    NUPKG_FILE=$(find "$EXTRACT_DIR" -name "*.nupkg" | head -1)
+    if [ -z "$NUPKG_FILE" ]; then
+        echo "❌ Failed to find .nupkg file after multiple extraction attempts"
+        exit 1
+    fi
 fi
 
 echo "📦 Extracting .nupkg file: $(basename "$NUPKG_FILE")"

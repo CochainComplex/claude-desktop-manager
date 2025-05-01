@@ -4,11 +4,17 @@
 
 set -e
 
-# Check if we have the package file
-if [ ! -f "$HOME/Downloads/claude-desktop_0.9.2_amd64.deb" ]; then
-    echo "Package not found in $HOME/Downloads"
+# Find the Claude Desktop package in Downloads directory
+CLAUDE_DEB=$(find "$HOME/Downloads" -name "claude-desktop_*.deb" -o -name "claude-desktop-*.deb" | head -1)
+
+if [ -z "$CLAUDE_DEB" ]; then
+    echo "Claude Desktop package not found in $HOME/Downloads"
+    echo "Looking for files in Downloads directory:"
+    ls -la "$HOME/Downloads"
     exit 1
 fi
+
+echo "Found package: $CLAUDE_DEB"
 
 # Create extraction directory
 echo "Creating extraction directory..."
@@ -16,13 +22,13 @@ mkdir -p $HOME/temp-extract
 cd $HOME/temp-extract
 
 # Extract the package
-echo "Extracting package..."
+echo "Extracting package: $(basename "$CLAUDE_DEB")..."
 if command -v dpkg-deb &> /dev/null; then
-    dpkg-deb -x "$HOME/Downloads/claude-desktop_0.9.2_amd64.deb" .
+    dpkg-deb -x "$CLAUDE_DEB" .
 else
     # Use ar and tar as fallback
     echo "dpkg-deb not found, using ar and tar..."
-    ar x "$HOME/Downloads/claude-desktop_0.9.2_amd64.deb"
+    ar x "$CLAUDE_DEB"
     
     # Extract data archive
     if [ -f "data.tar.xz" ]; then
