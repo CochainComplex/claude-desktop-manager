@@ -365,8 +365,30 @@ create_installation_script() {
     # Installation script path in the sandbox
     local install_script="${sandbox_home}/install-claude.sh"
     
-    # Create the installation script with basic Wayland support
-    cat > "${install_script}" << EOF
+    # Get template directory
+    local template_dir="$(find_template_dir)"
+    if [ -z "$template_dir" ]; then
+        echo "Warning: Templates directory not found, using fallback paths"
+        template_dir="${SCRIPT_DIR}/templates"
+        if [ ! -d "$template_dir" ]; then
+            template_dir="$(cd "${SCRIPT_DIR}" && cd .. && pwd)/templates"
+        fi
+    fi
+    
+    # Path to the installation script template
+    local template_file="${template_dir}/install-claude.sh.template"
+    
+    if [ -f "$template_file" ]; then
+        echo "Using installation script template from: $template_file"
+        # Read template content and substitute variables
+        sed -e "s|{instance_name}|$instance_name|g" \
+            -e "s|{package_filename}|$package_filename|g" \
+            "$template_file" > "$install_script"
+    else
+        echo "Warning: Installation script template not found at ${template_file}"
+        echo "Creating installation script from inline content"
+        # Fallback to inline generation
+        cat > "${install_script}" << EOF
 #!/bin/bash
 # Claude Desktop installation script for sandboxed environment
 set -e
@@ -522,6 +544,7 @@ else
     exit 1
 fi
 EOF
+    fi
     
     # Make the installation script executable
     chmod +x "${install_script}"

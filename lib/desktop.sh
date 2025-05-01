@@ -92,7 +92,30 @@ create_desktop_shortcut() {
     
     local desktop_file="${desktop_dir}/claude-${instance_name}.desktop"
     
-    cat > "$desktop_file" <<EOF
+    # Get template directory
+    local template_dir="$(find_template_dir)"
+    if [ -z "$template_dir" ]; then
+        echo "Warning: Templates directory not found, using fallback paths"
+        template_dir="${SCRIPT_DIR}/templates"
+        if [ ! -d "$template_dir" ]; then
+            template_dir="$(cd "${SCRIPT_DIR}" && cd .. && pwd)/templates"
+        fi
+    fi
+    
+    # Try to use the desktop entry template
+    local template_file="${template_dir}/desktop_entry.desktop"
+    
+    if [ -f "$template_file" ]; then
+        echo "Using desktop entry template from: $template_file"
+        # Read template content and substitute variables
+        sed -e "s|{instance}|$instance_name|g" \
+            -e "s|{script_path}|$script_path|g" \
+            "$template_file" > "$desktop_file"
+    else
+        echo "Warning: Desktop entry template not found at ${template_file}"
+        echo "Creating desktop entry from inline content"
+        # Fallback to inline generation
+        cat > "$desktop_file" <<EOF
 [Desktop Entry]
 Name=Claude ($instance_name)
 Comment=Claude AI Assistant ($instance_name instance)
@@ -104,6 +127,7 @@ Categories=Office;Utility;Network;
 StartupWMClass=Claude-$instance_name
 X-CMGR-Instance=$instance_name
 EOF
+    fi
     
     chmod +x "$desktop_file"
     

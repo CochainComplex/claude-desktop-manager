@@ -1,0 +1,108 @@
+{
+  "showTray": true,
+  "electronInitScript": "{sandbox_user_home}/.config/Claude/electron/preload.js",
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/filesystem",
+        "--port",
+        "{filesystem_port}"
+      ],
+      "env": {
+        "DISPLAY": "{display}",
+        "MCP_PORT": "{filesystem_port}",
+        "MCP_SERVER_PORT": "{filesystem_port}",
+        "MCP_BASE_PORT": "{base_port}",
+        "CLAUDE_INSTANCE": "{instance_name}",
+        "HOME": "{sandbox_user_home}"
+      }
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/sequential-thinking",
+        "--port",
+        "{sequential_thinking_port}"
+      ],
+      "env": {
+        "DISPLAY": "{display}",
+        "MCP_PORT": "{sequential_thinking_port}",
+        "MCP_SERVER_PORT": "{sequential_thinking_port}",
+        "MCP_BASE_PORT": "{base_port}",
+        "CLAUDE_INSTANCE": "{instance_name}",
+        "HOME": "{sandbox_user_home}" 
+      }
+    },
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/memory",
+        "--port",
+        "{memory_port}"
+      ],
+      "env": {
+        "DISPLAY": "{display}",
+        "MCP_PORT": "{memory_port}",
+        "MCP_SERVER_PORT": "{memory_port}",
+        "MCP_BASE_PORT": "{base_port}",
+        "CLAUDE_INSTANCE": "{instance_name}",
+        "HOME": "{sandbox_user_home}"
+      }
+    },
+    "desktop-commander": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/desktop-commander",
+        "--port",
+        "{desktop_commander_port}"
+      ],
+      "env": {
+        "DISPLAY": "{display}",
+        "MCP_PORT": "{desktop_commander_port}",
+        "MCP_SERVER_PORT": "{desktop_commander_port}",
+        "MCP_BASE_PORT": "{base_port}",
+        "CLAUDE_INSTANCE": "{instance_name}",
+        "HOME": "{sandbox_user_home}"
+      }
+    },
+    "repl": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/repl",
+        "--port",
+        "{repl_port}"
+      ],
+      "env": {
+        "DISPLAY": "{display}",
+        "MCP_PORT": "{repl_port}",
+        "MCP_SERVER_PORT": "{repl_port}",
+        "MCP_BASE_PORT": "{base_port}",
+        "CLAUDE_INSTANCE": "{instance_name}",
+        "HOME": "{sandbox_user_home}"
+      }
+    },
+    "@executeautomation-playwright-mcp-server": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@executeautomation/playwright-mcp-server",
+        "--port",
+        "{playwright_port}"
+      ],
+      "env": {
+        "DISPLAY": "{display}",
+        "MCP_PORT": "{playwright_port}",
+        "MCP_SERVER_PORT": "{playwright_port}",
+        "MCP_BASE_PORT": "{base_port}",
+        "CLAUDE_INSTANCE": "{instance_name}",
+        "HOME": "{sandbox_user_home}"
+      }
+    }
+  }
+}

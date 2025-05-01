@@ -233,8 +233,46 @@ generate_mcp_server_config() {
     # Sandbox user home path - must match the path used in sandbox.sh
     local sandbox_user_home="/home/claude"
     
-    # Create MCP server configuration
-    cat > "$output_file" << EOF
+    # Get tool ports
+    local filesystem_port=$(get_tool_port "$instance_name" "filesystem")
+    local sequential_thinking_port=$(get_tool_port "$instance_name" "sequential-thinking")
+    local memory_port=$(get_tool_port "$instance_name" "memory")
+    local desktop_commander_port=$(get_tool_port "$instance_name" "desktop-commander")
+    local repl_port=$(get_tool_port "$instance_name" "repl")
+    local playwright_port=$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")
+    
+    # Get template directory
+    local template_dir="$(find_template_dir)"
+    if [ -z "$template_dir" ]; then
+        echo "Warning: Templates directory not found, using fallback paths"
+        template_dir="${SCRIPT_DIR}/templates"
+        if [ ! -d "$template_dir" ]; then
+            template_dir="$(cd "${SCRIPT_DIR}" && cd .. && pwd)/templates"
+        fi
+    fi
+    
+    # Path to the MCP config template
+    local template_file="${template_dir}/mcp-config.json.template"
+    
+    if [ -f "$template_file" ]; then
+        echo "Using MCP config template from: $template_file"
+        # Read template content and substitute variables
+        sed -e "s|{instance_name}|$instance_name|g" \
+            -e "s|{sandbox_user_home}|$sandbox_user_home|g" \
+            -e "s|{base_port}|$base_port|g" \
+            -e "s|{display}|${DISPLAY:-:0}|g" \
+            -e "s|{filesystem_port}|$filesystem_port|g" \
+            -e "s|{sequential_thinking_port}|$sequential_thinking_port|g" \
+            -e "s|{memory_port}|$memory_port|g" \
+            -e "s|{desktop_commander_port}|$desktop_commander_port|g" \
+            -e "s|{repl_port}|$repl_port|g" \
+            -e "s|{playwright_port}|$playwright_port|g" \
+            "$template_file" > "$output_file"
+    else
+        echo "Warning: MCP config template not found at ${template_file}"
+        echo "Creating MCP server configuration from inline content"
+        # Fallback to inline generation
+        cat > "$output_file" << EOF
 {
   "showTray": true,
   "electronInitScript": "${sandbox_user_home}/.config/Claude/electron/preload.js",
@@ -245,12 +283,12 @@ generate_mcp_server_config() {
         "-y",
         "@modelcontextprotocol/filesystem",
         "--port",
-        "$(get_tool_port "$instance_name" "filesystem")"
+        "$filesystem_port"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
-        "MCP_PORT": "$(get_tool_port "$instance_name" "filesystem")",
-        "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "filesystem")",
+        "MCP_PORT": "$filesystem_port",
+        "MCP_SERVER_PORT": "$filesystem_port",
         "MCP_BASE_PORT": "$base_port",
         "CLAUDE_INSTANCE": "$instance_name",
         "HOME": "${sandbox_user_home}"
@@ -262,12 +300,12 @@ generate_mcp_server_config() {
         "-y",
         "@modelcontextprotocol/sequential-thinking",
         "--port",
-        "$(get_tool_port "$instance_name" "sequential-thinking")"
+        "$sequential_thinking_port"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
-        "MCP_PORT": "$(get_tool_port "$instance_name" "sequential-thinking")",
-        "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "sequential-thinking")",
+        "MCP_PORT": "$sequential_thinking_port",
+        "MCP_SERVER_PORT": "$sequential_thinking_port",
         "MCP_BASE_PORT": "$base_port",
         "CLAUDE_INSTANCE": "$instance_name",
         "HOME": "${sandbox_user_home}" 
@@ -279,12 +317,12 @@ generate_mcp_server_config() {
         "-y",
         "@modelcontextprotocol/memory",
         "--port",
-        "$(get_tool_port "$instance_name" "memory")"
+        "$memory_port"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
-        "MCP_PORT": "$(get_tool_port "$instance_name" "memory")",
-        "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "memory")",
+        "MCP_PORT": "$memory_port",
+        "MCP_SERVER_PORT": "$memory_port",
         "MCP_BASE_PORT": "$base_port",
         "CLAUDE_INSTANCE": "$instance_name",
         "HOME": "${sandbox_user_home}"
@@ -296,12 +334,12 @@ generate_mcp_server_config() {
         "-y",
         "@modelcontextprotocol/desktop-commander",
         "--port",
-        "$(get_tool_port "$instance_name" "desktop-commander")"
+        "$desktop_commander_port"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
-        "MCP_PORT": "$(get_tool_port "$instance_name" "desktop-commander")",
-        "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "desktop-commander")",
+        "MCP_PORT": "$desktop_commander_port",
+        "MCP_SERVER_PORT": "$desktop_commander_port",
         "MCP_BASE_PORT": "$base_port",
         "CLAUDE_INSTANCE": "$instance_name",
         "HOME": "${sandbox_user_home}"
@@ -313,12 +351,12 @@ generate_mcp_server_config() {
         "-y",
         "@modelcontextprotocol/repl",
         "--port",
-        "$(get_tool_port "$instance_name" "repl")"
+        "$repl_port"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
-        "MCP_PORT": "$(get_tool_port "$instance_name" "repl")",
-        "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "repl")",
+        "MCP_PORT": "$repl_port",
+        "MCP_SERVER_PORT": "$repl_port",
         "MCP_BASE_PORT": "$base_port",
         "CLAUDE_INSTANCE": "$instance_name",
         "HOME": "${sandbox_user_home}"
@@ -330,12 +368,12 @@ generate_mcp_server_config() {
         "-y",
         "@executeautomation/playwright-mcp-server",
         "--port",
-        "$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")"
+        "$playwright_port"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
-        "MCP_PORT": "$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")",
-        "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")",
+        "MCP_PORT": "$playwright_port",
+        "MCP_SERVER_PORT": "$playwright_port",
         "MCP_BASE_PORT": "$base_port",
         "CLAUDE_INSTANCE": "$instance_name",
         "HOME": "${sandbox_user_home}"
@@ -344,7 +382,8 @@ generate_mcp_server_config() {
   }
 }
 EOF
-
+    fi
+    
     echo "Generated MCP server configuration for instance '$instance_name' with base port $base_port"
     echo "Using sandbox home path: ${sandbox_user_home}"
     return 0

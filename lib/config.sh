@@ -245,13 +245,18 @@ configure_mcp_auto_approve() {
         template_dir="${SCRIPT_DIR}/../templates"
     fi
     
-    # Check if the template file exists
+    # Check for the primary MCP auto-approve template file
     if [ -f "${template_dir}/mcp-auto-approve.js" ]; then
         # Copy the template file to the sandbox
         cp -f "${template_dir}/mcp-auto-approve.js" "${electron_dir}/mcp-auto-approve.js"
         echo "✓ Copied MCP auto-approve script from template"
+    elif [ -f "${template_dir}/scripts/mcp-auto-approve-fallback.js" ]; then
+        # Use the fallback template file
+        cp -f "${template_dir}/scripts/mcp-auto-approve-fallback.js" "${electron_dir}/mcp-auto-approve.js"
+        echo "✓ Copied MCP auto-approve script from fallback template"
     else
         # Create a simple auto-approve script as fallback
+        echo "Warning: Could not find MCP auto-approve template files, using inline fallback"
         cat > "${electron_dir}/mcp-auto-approve.js" << 'EOF'
 // Simple auto-approve script for MCP tools
 const observer = new MutationObserver(function(mutations) {
@@ -276,8 +281,15 @@ EOF
         echo "✓ Created fallback MCP auto-approve script"
     fi
     
-    # Create init script to inject the auto-approver
-    cat > "${electron_dir}/init.js" << 'EOF'
+    # Check for the init.js template
+    if [ -f "${template_dir}/scripts/mcp-init.js" ]; then
+        # Copy the template file to the sandbox
+        cp -f "${template_dir}/scripts/mcp-init.js" "${electron_dir}/init.js"
+        echo "✓ Copied MCP init script from template"
+    else
+        # Create init script to inject the auto-approver
+        echo "Warning: Could not find MCP init.js template, using inline fallback"
+        cat > "${electron_dir}/init.js" << 'EOF'
 // Claude Desktop MCP Auto-Approval Initializer
 const fs = require('fs');
 const path = require('path');
@@ -299,6 +311,8 @@ try {
   console.error('Failed to initialize MCP Auto-Approval:', error);
 }
 EOF
+        echo "✓ Created fallback MCP init script"
+    fi
     
     # Update config file using utility functions
     local init_path="${sandbox_user_home}/.config/Claude/electron/init.js"

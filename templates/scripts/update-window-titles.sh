@@ -38,7 +38,7 @@ for config_dir in "$SANDBOX_HOME/.config/claude-desktop" "$SANDBOX_HOME/.config/
         # Check if window title code is already in the preload script
         if ! grep -q "updateTitle" "$preload_file"; then
             echo "Updating preload script: $preload_file"
-            cat >> "$preload_file" <<EOF
+            cat >> "$preload_file" <<'PRELOADEOF'
 
 // Window title customization for instance: $INSTANCE_NAME
 if (typeof window !== 'undefined') {
@@ -57,14 +57,14 @@ if (typeof window !== 'undefined') {
   // Check periodically for title changes
   setInterval(updateTitle, 1000);
 }
-EOF
+PRELOADEOF
             echo "✓ Preload script updated"
         else
             echo "✓ Preload script already contains window title customization"
         fi
     else
         echo "Creating new preload script: $preload_file"
-        cat > "$preload_file" <<EOF
+        cat > "$preload_file" <<'PRELOADEOF'
 // Claude Desktop Manager preload script
 // Custom preload script for instance: $INSTANCE_NAME
 
@@ -95,7 +95,7 @@ if (typeof process !== 'undefined') {
     console.error('Error setting default max listeners:', error);
   }
 }
-EOF
+PRELOADEOF
         echo "✓ New preload script created"
     fi
 done
@@ -116,11 +116,11 @@ if [ -f "$config_file" ]; then
     fi
 else
     echo "Creating new Claude Desktop config"
-    cat > "$config_file" <<EOF
+    cat > "$config_file" <<'CONFIGEOF'
 {
   "electronInitScript": "$HOME/.config/Claude/electron/preload.js"
 }
-EOF
+CONFIGEOF
     echo "✓ New configuration created"
 fi
 
