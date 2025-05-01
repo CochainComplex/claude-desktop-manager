@@ -1,9 +1,16 @@
 #!/bin/bash
 # sandbox.sh - Enhanced sandbox management module for Claude Desktop Manager
 
+# IMPORTANT: Within sandbox environments, home path is always /home/claude
+# When referring to paths inside the sandbox, always use /home/claude explicitly
+# rather than using $HOME substitution for clarity and consistency
+# Host path ${SANDBOX_BASE}/${instance_name} is mapped to /home/claude inside the sandbox
+
 # Get the sandbox home directory - can be used by other modules
 get_sandbox_homedir() {
-    # This now returns the consistent path inside the sandbox rather than on host
+    # This returns the consistent path inside the sandbox rather than on host
+    # IMPORTANT: All code referring to paths inside the sandbox must use this function
+    # or explicitly use /home/claude for consistency
     echo "/home/claude"
 }
 
@@ -132,9 +139,18 @@ run_in_sandbox() {
         return 1
     fi
     
-    # Use a consistent fake username across all sandboxes
-    local sandbox_username="claude"
-    local sandbox_user_home="/home/${sandbox_username}"
+    # Use consistent sandbox user information from utility functions
+    local sandbox_username="$(get_sandbox_username)"
+    local sandbox_user_home="$(get_sandbox_homedir)"
+    
+    # Verify path consistency before proceeding
+    if [ "$sandbox_user_home" != "/home/claude" ]; then
+        echo "ERROR: Sandbox path inconsistency detected!"
+        echo "Expected: /home/claude"
+        echo "Got: $sandbox_user_home"
+        echo "Please fix get_sandbox_homedir function to return correct path"
+        return 1
+    fi
     
     # Print debug information
     echo "---- SANDBOX INFORMATION ----"

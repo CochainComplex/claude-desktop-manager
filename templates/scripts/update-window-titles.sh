@@ -1,9 +1,11 @@
 #!/bin/bash
 # update-window-titles.sh - Updates desktop entries and preload scripts to customize window titles
+# This script runs inside the sandbox environment
 
 set -e
 
-SANDBOX_HOME="$HOME"
+# Use explicit sandbox path for consistency - do not use $HOME
+SANDBOX_HOME="/home/claude"
 INSTANCE_NAME="${CLAUDE_INSTANCE:-claude}"
 
 echo "Updating window title configuration for instance: $INSTANCE_NAME"
@@ -108,8 +110,8 @@ if [ -f "$config_file" ]; then
     # Check if config already has preload script
     if ! grep -q "electronInitScript" "$config_file"; then
         echo "Updating Claude Desktop config to use preload script"
-        # Simple sed approach that works in most cases
-        sed -i 's/{/{\"electronInitScript\": \"$HOME\/.config\/Claude\/electron\/preload.js\", /' "$config_file"
+        # Use explicit sandbox path - do not use $HOME
+        sed -i 's/{/{\"electronInitScript\": \"\/home\/claude\/.config\/Claude\/electron\/preload.js\", /' "$config_file"
         echo "✓ Configuration updated"
     else
         echo "✓ Configuration already contains preload script setting"
@@ -118,7 +120,7 @@ else
     echo "Creating new Claude Desktop config"
     cat > "$config_file" <<'CONFIGEOF'
 {
-  "electronInitScript": "$HOME/.config/Claude/electron/preload.js"
+  "electronInitScript": "/home/claude/.config/Claude/electron/preload.js"
 }
 CONFIGEOF
     echo "✓ New configuration created"

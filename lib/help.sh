@@ -1,6 +1,10 @@
 #!/bin/bash
 # help.sh - Help and usage information for Claude Desktop Manager
 
+# IMPORTANT: Within sandbox environments, home path is always /home/claude
+# When referring to paths inside the sandbox, always use /home/claude explicitly
+# rather than using $HOME substitution for clarity and consistency
+
 # Display help message
 show_help() {
     cat <<EOF

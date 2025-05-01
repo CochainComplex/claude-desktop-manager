@@ -1,6 +1,10 @@
 #!/bin/bash
 # desktop.sh - Desktop integration utilities for Claude Desktop Manager
 
+# IMPORTANT: Within sandbox environments, home path is always /home/claude
+# When referring to paths inside the sandbox, always use /home/claude explicitly
+# rather than using $HOME substitution for clarity and consistency
+
 # Create a shell alias for an instance
 create_alias() {
     local instance_name="$1"

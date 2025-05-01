@@ -1,6 +1,10 @@
 #!/bin/bash
 # patches.sh - System patch application functions for Claude Desktop Manager
 
+# IMPORTANT: Within sandbox environments, home path is always /home/claude
+# When referring to paths inside the sandbox, always use /home/claude explicitly
+# rather than using $HOME substitution for clarity and consistency
+
 # Apply system patches - to be run with elevated privileges
 apply_system_patches() {
     local logs_dir="${CMGR_HOME}/logs"

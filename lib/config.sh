@@ -1,6 +1,10 @@
 #!/bin/bash
 # config.sh - Configuration management for Claude Desktop Manager
 
+# IMPORTANT: Within sandbox environments, home path is always /home/claude
+# When referring to paths inside the sandbox, always use /home/claude explicitly
+# rather than using $HOME substitution for clarity and consistency
+
 # Configure instance settings
 configure_instance() {
     local instance_name="$1"
@@ -231,8 +235,8 @@ configure_mcp_auto_approve() {
     local config_file="$(get_sandbox_config_file "$instance_name")"
     local electron_dir="$(get_sandbox_electron_path "$instance_name")"
     
-    # Sandbox user home path - must match the path used in sandbox.sh
-    local sandbox_user_home="/home/claude"
+    # Get sandbox home path using utility function for consistency
+    local sandbox_user_home="$(get_sandbox_homedir)"
     
     # Ensure config directories exist
     mkdir -p "${config_dir}"
@@ -399,8 +403,10 @@ import_mcp_config() {
     # If electron init script path exists, update it
     if grep -q "electronInitScript" "$target_config_file"; then
         # Update the electronInitScript path to point to the correct location in the sandbox
-        jq --arg instance_dir "/home/claude/.config/Claude/electron" \
-           '.electronInitScript = $instance_dir + "/preload.js"' \
+        # Use explicit sandbox path from utility function
+        local sandbox_path="$(get_sandbox_homedir)"
+        jq --arg preload_path "${sandbox_path}/.config/Claude/electron/preload.js" \
+           '.electronInitScript = $preload_path' \
            "$target_config_file" > "$tmpfile" && \
         mv "$tmpfile" "$target_config_file"
     fi

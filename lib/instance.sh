@@ -248,6 +248,13 @@ start_instance() {
     # Debug display information before starting
     echo "Starting instance with DISPLAY=${DISPLAY:-unset}, XAUTHORITY=${XAUTHORITY:-unset}"
     
+    # Validate sandbox path mapping for consistency
+    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
+    local sandbox_user_home="$(get_sandbox_homedir)"
+    echo "Sandbox path mapping:"
+    echo "  Host path: ${sandbox_home}"
+    echo "  Sandbox path: ${sandbox_user_home}"
+    
     # Check if MCP config exists in the sandbox
     local sandbox_home="${SANDBOX_BASE}/${instance_name}"
     local mcp_config_file="${sandbox_home}/.config/Claude/claude_desktop_config.json"

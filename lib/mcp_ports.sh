@@ -4,6 +4,10 @@
 # This module handles port allocation and tracking for MCP servers
 # to ensure multiple Claude Desktop instances can run simultaneously
 # without port conflicts.
+#
+# IMPORTANT: Within sandbox environments, home path is always /home/claude
+# When referring to paths inside the sandbox, always use get_sandbox_homedir()
+# or explicitly use /home/claude for clarity and consistency
 
 # Base port for MCP servers
 MCP_BASE_PORT=9000
@@ -230,8 +234,8 @@ generate_mcp_server_config() {
     local base_port
     base_port=$(get_port_base "$instance_name")
     
-    # Sandbox user home path - must match the path used in sandbox.sh
-    local sandbox_user_home="/home/claude"
+    # Get sandbox home path using utility function for consistency
+    local sandbox_user_home="$(get_sandbox_homedir)"
     
     # Get tool ports
     local filesystem_port=$(get_tool_port "$instance_name" "filesystem")

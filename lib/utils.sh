@@ -2,6 +2,10 @@
 # utils.sh - Shared utility functions for Claude Desktop Manager
 # Derived from the original emsi/claude-desktop project
 
+# IMPORTANT: Within sandbox environments, home path is always /home/claude
+# When referring to paths inside the sandbox, always use /home/claude explicitly
+# rather than using $HOME substitution for clarity and consistency
+
 # Find template directory with multiple fallback strategies
 # Returns the path to the templates directory
 find_template_dir() {

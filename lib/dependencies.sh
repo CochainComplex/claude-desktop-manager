@@ -1,6 +1,10 @@
 #!/bin/bash
 # dependencies.sh - Dependency management for Claude Desktop Manager
 
+# IMPORTANT: Within sandbox environments, home path is always /home/claude
+# When referring to paths inside the sandbox, always use /home/claude explicitly
+# rather than using $HOME substitution for clarity and consistency
+
 # Check if a command exists
 check_command() {
     if ! command -v "$1" &> /dev/null; then
