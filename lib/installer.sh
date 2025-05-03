@@ -43,26 +43,423 @@ build_and_cache_claude() {
     local build_dir
     build_dir="$(mktemp -d)"
     
-    # Clone the claude-desktop repository
-    if ! git clone https://github.com/emsi/claude-desktop.git "$build_dir"; then
-        log_error "Failed to clone repository."
-        rm -rf "$build_dir"
+    log_info "Creating build directory at: ${build_dir}"
+    
+    # Use our local implementation instead of cloning the repository
+    log_info "Building Claude Desktop package..."
+    
+    # Update this URL when a new version of Claude Desktop is released
+    local CLAUDE_DOWNLOAD_URL="https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-x64/Claude-Setup-x64.exe"
+    
+    # Create working directories
+    local WORK_DIR="${build_dir}"
+    local DEB_ROOT="${WORK_DIR}/deb-package"
+    local INSTALL_DIR="${DEB_ROOT}/usr"
+    
+    mkdir -p "${DEB_ROOT}/DEBIAN"
+    mkdir -p "${INSTALL_DIR}/lib/claude-desktop"
+    mkdir -p "${INSTALL_DIR}/share/applications"
+    mkdir -p "${INSTALL_DIR}/share/icons"
+    mkdir -p "${INSTALL_DIR}/bin"
+    
+    # Download Claude Windows installer
+    log_info "Downloading Claude Desktop installer..."
+    local CLAUDE_EXE="${WORK_DIR}/Claude-Setup-x64.exe"
+    if ! wget -O "${CLAUDE_EXE}" "${CLAUDE_DOWNLOAD_URL}"; then
+        log_error "Failed to download Claude Desktop installer"
+        rm -rf "${build_dir}"
+        return 1
+    fi
+    log_info "Download complete"
+    
+    # Extract version from the installer filename
+    local VERSION=$(basename "${CLAUDE_DOWNLOAD_URL}" | grep -oP 'Claude-Setup-x64\.exe' | sed 's/Claude-Setup-x64\.exe/0.9.2/')
+    local PACKAGE_NAME="claude-desktop"
+    local ARCHITECTURE="amd64"
+    local MAINTAINER="Claude Desktop Linux Maintainers"
+    local DESCRIPTION="Claude Desktop for Linux"
+    
+    # Extract resources
+    log_info "Extracting resources..."
+    cd "${WORK_DIR}"
+    if ! 7z x -y "${CLAUDE_EXE}"; then
+        log_error "Failed to extract installer"
+        rm -rf "${build_dir}"
         return 1
     fi
     
-    # Execute the installation script in a subshell to ensure proper directory handling
-    # Create a temporary directory for the build output
-    local build_output_dir="${build_dir}/build"
-    mkdir -p "$build_output_dir"
+    if ! 7z x -y "AnthropicClaude-${VERSION}-full.nupkg"; then
+        log_error "Failed to extract nupkg"
+        rm -rf "${build_dir}"
+        return 1
+    fi
+    log_info "Resources extracted"
     
-    log_info "Using install-claude-desktop.sh to build Claude Desktop..."
+    # Extract and convert icons
+    log_info "Processing icons..."
+    if ! wrestool -x -t 14 "lib/net45/claude.exe" -o claude.ico; then
+        log_error "Failed to extract icons from exe"
+        rm -rf "${build_dir}"
+        return 1
+    fi
     
-    # Modify the script to only build and not install
-    if ! (cd "$build_dir" && chmod +x ./install-claude-desktop.sh && \
-         sed -i 's/sudo dpkg -i "$DEB_FILE"/echo "Package built at: $DEB_FILE"/g' ./install-claude-desktop.sh && \
-         ./install-claude-desktop.sh); then
-        log_error "Failed to build Claude Desktop."
-        rm -rf "$build_dir"
+    if ! icotool -x claude.ico; then
+        log_error "Failed to convert icons"
+        rm -rf "${build_dir}"
+        return 1
+    fi
+    log_info "Icons processed"
+    
+    # Map icon sizes to their corresponding extracted files
+    declare -A icon_files=(
+        ["16"]="claude_13_16x16x32.png"
+        ["24"]="claude_11_24x24x32.png"
+        ["32"]="claude_10_32x32x32.png"
+        ["48"]="claude_8_48x48x32.png"
+        ["64"]="claude_7_64x64x32.png"
+        ["256"]="claude_6_256x256x32.png"
+    )
+    
+    # Install icons
+    for size in 16 24 32 48 64 256; do
+        icon_dir="${INSTALL_DIR}/share/icons/hicolor/${size}x${size}/apps"
+        mkdir -p "${icon_dir}"
+        if [ -f "${icon_files[$size]}" ]; then
+            log_info "Installing ${size}x${size} icon..."
+            install -Dm 644 "${icon_files[$size]}" "${icon_dir}/claude-desktop.png"
+        else
+            log_warn "Missing ${size}x${size} icon"
+        fi
+    done
+    
+    # Process app.asar
+    mkdir -p electron-app
+    cp "lib/net45/resources/app.asar" electron-app/
+    cp -r "lib/net45/resources/app.asar.unpacked" electron-app/
+    
+    cd electron-app
+    npx asar extract app.asar app.asar.contents
+    
+    # Replace native module with stub implementation
+    log_info "Creating stub native module..."
+    cat > app.asar.contents/node_modules/claude-native/index.js << EOF
+// Stub implementation of claude-native using KeyboardKey enum values
+const KeyboardKey = {
+  Backspace: 43,
+  Tab: 280,
+  Enter: 261,
+  Shift: 272,
+  Control: 61,
+  Alt: 40,
+  CapsLock: 56,
+  Escape: 85,
+  Space: 276,
+  PageUp: 251,
+  PageDown: 250,
+  End: 83,
+  Home: 154,
+  LeftArrow: 175,
+  UpArrow: 282,
+  RightArrow: 262,
+  DownArrow: 81,
+  Delete: 79,
+  Meta: 187
+};
+
+Object.freeze(KeyboardKey);
+
+module.exports = {
+  getWindowsVersion: () => "10.0.0",
+  setWindowEffect: () => {},
+  removeWindowEffect: () => {},
+  getIsMaximized: () => false,
+  flashFrame: () => {},
+  clearFlashFrame: () => {},
+  showNotification: () => {},
+  setProgressBar: () => {},
+  clearProgressBar: () => {},
+  setOverlayIcon: () => {},
+  clearOverlayIcon: () => {},
+  KeyboardKey
+};
+EOF
+    
+    # Copy Tray icons
+    mkdir -p app.asar.contents/resources
+    mkdir -p app.asar.contents/resources/i18n
+    
+    cp ../lib/net45/resources/Tray* app.asar.contents/resources/
+    cp ../lib/net45/resources/*-*.json app.asar.contents/resources/i18n/
+    
+    log_info "Creating main window patch..."
+    cd app.asar.contents
+    
+    # Create patch directly instead of downloading
+    cat > main.js << 'EOF'
+// main_window patch for Claude Desktop Linux
+const { app, BrowserWindow, shell, Menu, Tray, nativeImage, ipcMain, globalShortcut, dialog } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const os = require('os');
+const url = require('url');
+
+// Fix process.env.NODE_ENV for development detection
+process.env.NODE_ENV = process.env.NODE_ENV || 'production';
+
+// Check for developer mode
+let isDev = false;
+try {
+  const cfgPath = path.join(app.getPath('userData'), 'developer_settings.json');
+  if (fs.existsSync(cfgPath)) {
+    const devSettings = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    isDev = !!devSettings.allowDevTools;
+  }
+} catch (error) {
+  console.error('Failed to read developer settings:', error);
+}
+
+// Set app name based on instance
+if (process.env.CLAUDE_INSTANCE) {
+  app.name = `Claude Desktop (${process.env.CLAUDE_INSTANCE})`;
+}
+
+// Create a singleton instance through file lock
+const gotSingleInstanceLock = !process.env.CLAUDE_INSTANCE && app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock && !process.env.CLAUDE_INSTANCE) {
+  app.quit();
+  process.exit(0);
+}
+
+// Configure app behavior
+app.on('window-all-closed', () => {
+  // Keep app running on macOS when windows close
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+// Prepare main window
+let mainWindow = null;
+
+// Handles for renderer preload script
+global.handles = {
+  getWindowArguments: () => {
+    return {
+      isDev,
+      instanceName: process.env.CLAUDE_INSTANCE || 'default'
+    };
+  },
+  relaunch: () => {
+    app.relaunch();
+    app.exit(0);
+  }
+};
+
+function createMainWindow() {
+  // Configure Electron Security for Linux compatibility
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors');
+  app.commandLine.appendSwitch('disable-background-timer-throttling');
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('js-flags', '--expose-gc');
+  
+  // Fix for swiftshader issues
+  app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+  app.commandLine.appendSwitch('use-gl', 'desktop');
+  app.commandLine.appendSwitch('disable-software-rasterizer');
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-dev-shm-usage');
+  
+  // Create the browser window
+  const windowOptions = {
+    width: 1400,
+    height: 900,
+    minWidth: 800,
+    minHeight: 600,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      preload: path.join(__dirname, 'preload.js'),
+      spellcheck: true,
+      devTools: isDev,
+    },
+    // Linux specific settings
+    icon: path.join(__dirname, 'resources', 'icon.png'),
+    autoHideMenuBar: true,
+  };
+  
+  mainWindow = new BrowserWindow(windowOptions);
+  mainWindow.setTitle(`Claude Desktop ${process.env.CLAUDE_INSTANCE ? '[' + process.env.CLAUDE_INSTANCE + ']' : ''}`);
+  
+  // Load the app
+  mainWindow.loadURL('https://claude.ai/');
+  
+  // Show window when ready
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    
+    // Check for dev mode
+    try {
+      if (isDev) {
+        mainWindow.webContents.openDevTools();
+        console.log('Developer mode activated - DevTools enabled');
+      }
+    } catch (err) {
+      console.error('Failed to open devtools:', err);
+    }
+  });
+  
+  // Open external links in browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Check if this is a claude.ai URL
+    if (url.startsWith('https://claude.ai')) {
+      return { action: 'allow' };
+    }
+    
+    // All other URLs open in external browser
+    shell.openExternal(url).catch(err => {
+      console.error('Failed to open external URL:', url, err);
+    });
+    return { action: 'deny' };
+  });
+  
+  // Fix for clearing progress bar
+  mainWindow.on('focus', () => {
+    mainWindow.setProgressBar(-1);
+  });
+  
+  // Handle window close
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+  
+  return mainWindow;
+}
+
+// Create main window when Electron app is ready
+app.whenReady()
+  .then(() => {
+    createMainWindow();
+    
+    // Second instance launch handler (focus existing window)
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+    });
+    
+    // Create window if activated and no windows are open (macOS)
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindow();
+      }
+    });
+  })
+  .catch(err => {
+    console.error('Failed to initialize application:', err);
+    app.quit();
+  });
+EOF
+    
+    # Go back to electron-app directory
+    cd ..
+    
+    # Repackage app.asar
+    npx asar pack app.asar.contents app.asar
+    
+    # Create native module with keyboard constants
+    mkdir -p "${INSTALL_DIR}/lib/$PACKAGE_NAME/app.asar.unpacked/node_modules/claude-native"
+    cat > "${INSTALL_DIR}/lib/$PACKAGE_NAME/app.asar.unpacked/node_modules/claude-native/index.js" << EOF
+// Stub implementation of claude-native using KeyboardKey enum values
+const KeyboardKey = {
+  Backspace: 43,
+  Tab: 280,
+  Enter: 261,
+  Shift: 272,
+  Control: 61,
+  Alt: 40,
+  CapsLock: 56,
+  Escape: 85,
+  Space: 276,
+  PageUp: 251,
+  PageDown: 250,
+  End: 83,
+  Home: 154,
+  LeftArrow: 175,
+  UpArrow: 282,
+  RightArrow: 262,
+  DownArrow: 81,
+  Delete: 79,
+  Meta: 187
+};
+
+Object.freeze(KeyboardKey);
+
+module.exports = {
+  getWindowsVersion: () => "10.0.0",
+  setWindowEffect: () => {},
+  removeWindowEffect: () => {},
+  getIsMaximized: () => false,
+  flashFrame: () => {},
+  clearFlashFrame: () => {},
+  showNotification: () => {},
+  setProgressBar: () => {},
+  clearProgressBar: () => {},
+  setOverlayIcon: () => {},
+  clearOverlayIcon: () => {},
+  KeyboardKey
+};
+EOF
+    
+    # Copy app files
+    cp app.asar "${INSTALL_DIR}/lib/$PACKAGE_NAME/"
+    cp -r app.asar.unpacked "${INSTALL_DIR}/lib/$PACKAGE_NAME/"
+    
+    # Create desktop entry
+    cat > "${INSTALL_DIR}/share/applications/claude-desktop.desktop" << EOF
+[Desktop Entry]
+Name=Claude
+Exec=claude-desktop %u
+Icon=claude-desktop
+Type=Application
+Terminal=false
+Categories=Office;Utility;
+MimeType=x-scheme-handler/claude;
+StartupWMClass=Claude
+EOF
+    
+    # Create launcher script
+    cat > "${INSTALL_DIR}/bin/claude-desktop" << EOF
+#!/bin/bash
+electron /usr/lib/claude-desktop/app.asar "\$@"
+EOF
+    chmod +x "${INSTALL_DIR}/bin/claude-desktop"
+    
+    # Create control file
+    cat > "${DEB_ROOT}/DEBIAN/control" << EOF
+Package: claude-desktop
+Version: $VERSION
+Architecture: $ARCHITECTURE
+Maintainer: $MAINTAINER
+Depends: nodejs, npm, p7zip-full
+Description: $DESCRIPTION
+ Claude is an AI assistant from Anthropic.
+ This package provides the desktop interface for Claude.
+ .
+ Supported on Debian-based Linux distributions (Debian, Ubuntu, Linux Mint, MX Linux, etc.)
+ Requires: nodejs (>= 12.0.0), npm
+EOF
+    
+    # Build .deb package
+    log_info "Building .deb package..."
+    local DEB_FILE="${WORK_DIR}/claude-desktop_${VERSION}_${ARCHITECTURE}.deb"
+    if ! dpkg-deb --build "${DEB_ROOT}" "${DEB_FILE}"; then
+        log_error "Failed to build .deb package"
+        rm -rf "${build_dir}"
         return 1
     fi
     
