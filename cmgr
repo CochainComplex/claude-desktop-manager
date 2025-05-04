@@ -819,6 +819,407 @@ EOF
     return 0
 }
 
+cmd_verify_isolation() {
+    local instance_name="$1"
+    
+    if [ -z "$instance_name" ]; then
+        echo "Error: Missing instance name"
+        cmd_help
+        exit 1
+    fi
+    
+    # Check if instance exists
+    if ! instance_exists "$instance_name"; then
+        echo "Error: Instance '$instance_name' does not exist."
+        return 1
+    fi
+    
+    echo "Verifying sandbox isolation for instance '$instance_name'..."
+    
+    # Copy the verification script to the sandbox if it exists
+    local sandbox_home="${SANDBOX_BASE}/${instance_name}"
+    mkdir -p "${sandbox_home}/.config/claude-desktop"
+    
+    if [ -f "${SCRIPT_DIR}/templates/scripts/verify-isolation.sh" ]; then
+        cp "${SCRIPT_DIR}/templates/scripts/verify-isolation.sh" "${sandbox_home}/.config/claude-desktop/"
+        chmod +x "${sandbox_home}/.config/claude-desktop/verify-isolation.sh"
+    else
+        echo "Creating isolation verification script..."
+        cat > "${sandbox_home}/.config/claude-desktop/verify-isolation.sh" << 'EOF'
+#!/bin/bash
+# verify-isolation.sh - Script to verify sandbox isolation is working correctly
+
+# Bold text formatting
+BOLD="\e[1m"
+RESET="\e[0m"
+GREEN="\e[32m"
+RED="\e[31m"
+YELLOW="\e[33m"
+
+echo -e "${BOLD}Claude Desktop Manager - Sandbox Isolation Verification${RESET}"
+echo "============================================================"
+
+# Check if HOME is set correctly
+echo -e "\n${BOLD}1. Checking HOME environment variable:${RESET}"
+if [ "$HOME" != "/home/claude" ]; then
+    echo -e "${RED}✗ HOME is incorrectly set to: $HOME${RESET}"
+    echo "  It should be: /home/claude"
+else
+    echo -e "${GREEN}✓ HOME environment variable is correctly set to /home/claude${RESET}"
+fi
+
+# Check if real home is accessible
+echo -e "\n${BOLD}2. Checking if real user home directory is inaccessible:${RESET}"
+if [ -d "/home/awarth" ]; then
+    echo -e "${RED}✗ CRITICAL: Can access real home at /home/awarth${RESET}"
+    echo "  This indicates isolation failure!"
+    ls -la "/home/awarth" | head -5
+else
+    echo -e "${GREEN}✓ Cannot access real home at /home/awarth (expected behavior)${RESET}"
+fi
+
+# Check if only the sandbox home exists
+echo -e "\n${BOLD}3. Checking if /home contains only the sandbox directory:${RESET}"
+if [ ! -d "/home/claude" ]; then
+    echo -e "${RED}✗ ERROR: Cannot access sandbox home at /home/claude!${RESET}"
+elif [ "$(ls -la /home | grep -v claude | grep -c ^d)" -gt 0 ]; then
+    echo -e "${YELLOW}⚠ WARNING: Additional directories found in /home besides claude:${RESET}"
+    ls -la /home
+else
+    echo -e "${GREEN}✓ Only the sandbox home directory (/home/claude) is accessible${RESET}"
+fi
+
+# Check if MCP configuration is using correct paths
+echo -e "\n${BOLD}4. Checking MCP configuration paths:${RESET}"
+config_file="$HOME/.config/Claude/claude_desktop_config.json"
+if [ -f "$config_file" ]; then
+    echo -e "${GREEN}✓ MCP configuration file exists at: $config_file${RESET}"
+    
+    # Check for paths in MCP config
+    if grep -q "/home/awarth" "$config_file"; then
+        echo -e "${RED}✗ Found references to /home/awarth in MCP config!${RESET}"
+        grep -n "/home/awarth" "$config_file"
+    else
+        echo -e "${GREEN}✓ No references to real home directory in MCP config${RESET}"
+    fi
+    
+    # Check for environment path
+    if grep -q "\"HOME\": \"/home/claude\"" "$config_file"; then
+        echo -e "${GREEN}✓ HOME environment correctly set to /home/claude in MCP config${RESET}"
+    else
+        echo -e "${YELLOW}⚠ HOME environment may not be correctly set in MCP config${RESET}"
+        grep -n "\"HOME\"" "$config_file" || echo "  No HOME environment entry found"
+    fi
+else
+    echo -e "${YELLOW}⚠ MCP configuration file not found at: $config_file${RESET}"
+fi
+
+# Check access to real config
+echo -e "\n${BOLD}5. Testing access to real MCP configuration:${RESET}"
+if [ -d "/home/awarth/.config/Claude" ]; then
+    echo -e "${RED}✗ CRITICAL: Can access real Claude config at /home/awarth/.config/Claude${RESET}"
+else
+    echo -e "${GREEN}✓ Cannot access real Claude config (expected behavior)${RESET}"
+fi
+
+# Summarize findings
+echo -e "\n${BOLD}Summary:${RESET}"
+if [ "$HOME" != "/home/claude" ] || [ -d "/home/awarth" ] || [ -d "/home/awarth/.config/Claude" ]; then
+    echo -e "${RED}❌ Sandbox isolation FAILED - Please check the sandbox configuration${RESET}"
+else
+    echo -e "${GREEN}✅ Sandbox isolation appears to be working correctly${RESET}"
+fi
+
+echo -e "\nFor more information, see README-ISOLATION-FIX.md"
+EOF
+        chmod +x "${sandbox_home}/.config/claude-desktop/verify-isolation.sh"
+    fi
+    
+    # Run the verification script in the sandbox
+    run_in_sandbox "$instance_name" bash -c "~/.config/claude-desktop/verify-isolation.sh"
+    
+    return $?
+}
+
+cmd_build() {
+    echo "Building latest Claude Desktop .deb package..."
+    
+    # Check if we have the necessary dependencies
+    echo "Checking dependencies..."
+    for cmd in p7zip wget wrestool icotool convert nodejs npm; do
+        if ! command -v "$cmd" &> /dev/null; then
+            echo "❌ Missing dependency: $cmd"
+            echo "Please install the required dependencies before proceeding."
+            return 1
+        fi
+    done
+    echo "✓ All dependencies satisfied."
+    
+    # Create build directory
+    local build_dir="${CMGR_CACHE}/build_$(date +%s)"
+    mkdir -p "$build_dir"
+    
+    echo "Using build directory: $build_dir"
+    
+    # Set up paths and variables
+    local format="deb"
+    local cleanup="yes"
+    local architecture=$(dpkg --print-architecture)
+    local CLAUDE_DOWNLOAD_URL=""
+    
+    # Set the download URL based on architecture
+    if [ "$architecture" = "amd64" ]; then
+        CLAUDE_DOWNLOAD_URL="https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-x64/Claude-Setup-x64.exe"
+        CLAUDE_EXE_FILENAME="Claude-Setup-x64.exe"
+    elif [ "$architecture" = "arm64" ]; then
+        CLAUDE_DOWNLOAD_URL="https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-arm64/Claude-Setup-arm64.exe"
+        CLAUDE_EXE_FILENAME="Claude-Setup-arm64.exe"
+    else
+        echo "❌ Unsupported architecture: $architecture."
+        echo "   Currently, only amd64 and arm64 are supported."
+        rm -rf "$build_dir"
+        return 1
+    fi
+    
+    echo "Target architecture: $architecture"
+    
+    # Download Claude Desktop installer
+    echo "📥 Downloading Claude Desktop installer..."
+    local CLAUDE_EXE_PATH="$build_dir/$CLAUDE_EXE_FILENAME"
+    if ! wget -O "$CLAUDE_EXE_PATH" "$CLAUDE_DOWNLOAD_URL"; then
+        echo "❌ Failed to download Claude Desktop installer."
+        rm -rf "$build_dir"
+        return 1
+    fi
+    echo "✓ Download complete: $CLAUDE_EXE_FILENAME"
+    
+    # Extract resources
+    echo "📦 Extracting resources from installer..."
+    cd "$build_dir"
+    if ! 7z x -y "$CLAUDE_EXE_PATH"; then
+        echo "❌ Failed to extract installer."
+        cd "$SCRIPT_DIR"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    
+    # Find nupkg file
+    local NUPKG_PATH_RELATIVE=$(find . -maxdepth 1 -name "AnthropicClaude-*.nupkg" | head -1)
+    if [ -z "$NUPKG_PATH_RELATIVE" ]; then
+        echo "❌ Could not find AnthropicClaude nupkg file."
+        cd "$SCRIPT_DIR"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    
+    # Extract version from nupkg filename
+    local VERSION=$(echo "$NUPKG_PATH_RELATIVE" | LC_ALL=C grep -oP 'AnthropicClaude-\K[0-9]+\.[0-9]+\.[0-9]+(?=-full|-arm64-full)')
+    if [ -z "$VERSION" ]; then
+        echo "❌ Could not extract version from nupkg filename: $NUPKG_PATH_RELATIVE"
+        cd "$SCRIPT_DIR"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    echo "✓ Detected Claude version: $VERSION"
+    
+    # Extract nupkg
+    if ! 7z x -y "$NUPKG_PATH_RELATIVE"; then
+        echo "❌ Failed to extract nupkg."
+        cd "$SCRIPT_DIR"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    echo "✓ Resources extracted from nupkg."
+    
+    # Process icons
+    echo "🎨 Processing icons..."
+    local EXE_RELATIVE_PATH="lib/net45/claude.exe"
+    if [ ! -f "$EXE_RELATIVE_PATH" ]; then
+        echo "❌ Cannot find claude.exe at expected path."
+        cd "$SCRIPT_DIR"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    
+    if ! wrestool -x -t 14 "$EXE_RELATIVE_PATH" -o claude.ico; then
+        echo "❌ Failed to extract icons from exe."
+        cd "$SCRIPT_DIR"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    
+    if ! icotool -x claude.ico; then
+        echo "❌ Failed to convert icons."
+        cd "$SCRIPT_DIR"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    echo "✓ Icons processed."
+    
+    # Create deb package structure
+    echo "⚙️ Creating Debian package structure..."
+    local PACKAGE_NAME="claude-desktop"
+    local MAINTAINER="Claude Desktop Manager <$(whoami)@$(hostname)>"
+    local DESCRIPTION="Claude Desktop for Linux - Built with Claude Desktop Manager"
+    
+    local DEB_ROOT="$build_dir/deb-package"
+    local INSTALL_DIR="$DEB_ROOT/usr"
+    
+    mkdir -p "$DEB_ROOT/DEBIAN"
+    mkdir -p "$INSTALL_DIR/lib/$PACKAGE_NAME"
+    mkdir -p "$INSTALL_DIR/share/applications"
+    mkdir -p "$INSTALL_DIR/share/icons/hicolor/256x256/apps"
+    mkdir -p "$INSTALL_DIR/bin"
+    
+    # Process app.asar
+    echo "⚙️ Processing app.asar..."
+    mkdir -p "$build_dir/electron-app"
+    cp "lib/net45/resources/app.asar" "$build_dir/electron-app/"
+    cp -a "lib/net45/resources/app.asar.unpacked" "$build_dir/electron-app/" 2>/dev/null || true
+    
+    cd "$build_dir/electron-app"
+    
+    # Extract app.asar
+    if ! npx asar extract app.asar app.asar.contents; then
+        echo "❌ Failed to extract app.asar."
+        cd "$SCRIPT_DIR"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    
+    # Create stub native module
+    echo "Creating stub native module..."
+    mkdir -p app.asar.contents/node_modules/claude-native
+    cat > app.asar.contents/node_modules/claude-native/index.js << EOF
+// Stub implementation of claude-native using KeyboardKey enum values
+const KeyboardKey = { Backspace: 43, Tab: 280, Enter: 261, Shift: 272, Control: 61, Alt: 40, CapsLock: 56, Escape: 85, Space: 276, PageUp: 251, PageDown: 250, End: 83, Home: 154, LeftArrow: 175, UpArrow: 282, RightArrow: 262, DownArrow: 81, Delete: 79, Meta: 187 };
+Object.freeze(KeyboardKey);
+module.exports = { getWindowsVersion: () => "10.0.0", setWindowEffect: () => {}, removeWindowEffect: () => {}, getIsMaximized: () => false, flashFrame: () => {}, clearFlashFrame: () => {}, showNotification: () => {}, setProgressBar: () => {}, clearProgressBar: () => {}, setOverlayIcon: () => {}, clearOverlayIcon: () => {}, KeyboardKey };
+EOF
+    
+    # Copy Tray icons and localization files
+    mkdir -p app.asar.contents/resources
+    mkdir -p app.asar.contents/resources/i18n
+    cp "$build_dir/lib/net45/resources/Tray"* app.asar.contents/resources/ 2>/dev/null || true
+    cp "$build_dir/lib/net45/resources/"*-*.json app.asar.contents/resources/i18n/ 2>/dev/null || true
+    
+    # Fix title bar issue (based on original implementation)
+    echo "Fixing title bar display..."
+    SEARCH_BASE="app.asar.contents/.vite/renderer/main_window/assets"
+    TARGET_PATTERN="MainWindowPage-*.js"
+    
+    # Find the target file recursively
+    TARGET_FILE=$(find "$SEARCH_BASE" -type f -name "$TARGET_PATTERN" 2>/dev/null | head -1)
+    
+    if [ -n "$TARGET_FILE" ] && [ -f "$TARGET_FILE" ]; then
+        echo "Found target file: $TARGET_FILE"
+        # Replace patterns like 'if(!VAR1 && VAR2)' with 'if(VAR1 && VAR2)'
+        sed -i -E 's/if\(!([a-zA-Z]+)[[:space:]]*&&[[:space:]]*([a-zA-Z]+)\)/if(\1 \&\& \2)/g' "$TARGET_FILE"
+        echo "✓ Title bar fix applied."
+    else
+        echo "⚠️ Could not find MainWindowPage file for title bar fix."
+    fi
+    
+    # Repack app.asar
+    if ! npx asar pack app.asar.contents app.asar; then
+        echo "❌ Failed to repack app.asar."
+        cd "$SCRIPT_DIR"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    
+    # Set up unpacked native module for asar.unpacked
+    mkdir -p "$DEB_ROOT/usr/lib/$PACKAGE_NAME/app.asar.unpacked/node_modules/claude-native"
+    cat > "$DEB_ROOT/usr/lib/$PACKAGE_NAME/app.asar.unpacked/node_modules/claude-native/index.js" << EOF
+// Stub implementation of claude-native using KeyboardKey enum values
+const KeyboardKey = { Backspace: 43, Tab: 280, Enter: 261, Shift: 272, Control: 61, Alt: 40, CapsLock: 56, Escape: 85, Space: 276, PageUp: 251, PageDown: 250, End: 83, Home: 154, LeftArrow: 175, UpArrow: 282, RightArrow: 262, DownArrow: 81, Delete: 79, Meta: 187 };
+Object.freeze(KeyboardKey);
+module.exports = { getWindowsVersion: () => "10.0.0", setWindowEffect: () => {}, removeWindowEffect: () => {}, getIsMaximized: () => false, flashFrame: () => {}, clearFlashFrame: () => {}, showNotification: () => {}, setProgressBar: () => {}, clearProgressBar: () => {}, setOverlayIcon: () => {}, clearOverlayIcon: () => {}, KeyboardKey };
+EOF
+    
+    # Copy app files to debian package structure
+    cp app.asar "$DEB_ROOT/usr/lib/$PACKAGE_NAME/"
+    cp -r app.asar.unpacked "$DEB_ROOT/usr/lib/$PACKAGE_NAME/" 2>/dev/null || true
+    
+    # Copy icon
+    cd "$build_dir"
+    cp "claude_6_256x256x32.png" "$DEB_ROOT/usr/share/icons/hicolor/256x256/apps/claude-desktop.png"
+    
+    # Create desktop entry
+    cat > "$DEB_ROOT/usr/share/applications/claude-desktop.desktop" << EOF
+[Desktop Entry]
+Name=Claude
+Comment=Claude Desktop AI Assistant
+Exec=claude-desktop %u
+Icon=claude-desktop
+Type=Application
+Terminal=false
+Categories=Office;Utility;
+MimeType=x-scheme-handler/claude;
+StartupWMClass=Claude
+EOF
+    
+    # Create launcher script
+    cat > "$DEB_ROOT/usr/bin/claude-desktop" << EOF
+#!/bin/bash
+electron /usr/lib/claude-desktop/app.asar "\$@"
+EOF
+    chmod +x "$DEB_ROOT/usr/bin/claude-desktop"
+    
+    # Create control file
+    cat > "$DEB_ROOT/DEBIAN/control" << EOF
+Package: claude-desktop
+Version: $VERSION
+Architecture: $architecture
+Maintainer: $MAINTAINER
+Depends: nodejs, npm, electron
+Description: $DESCRIPTION
+ Claude is an AI assistant from Anthropic.
+ This package provides the desktop interface for Claude.
+ .
+ Built with Claude Desktop Manager (cmgr)
+EOF
+    
+    # Build .deb package
+    echo "📦 Building .deb package..."
+    local DEB_FILE="$CMGR_CACHE/claude-desktop_${VERSION}_${architecture}.deb"
+    
+    if ! dpkg-deb --build "$DEB_ROOT" "$DEB_FILE"; then
+        echo "❌ Failed to build .deb package."
+        cd "$SCRIPT_DIR"
+        rm -rf "$build_dir"
+        return 1
+    fi
+    
+    # Copy to current directory
+    local OUTPUT_DEB="./claude-desktop_${VERSION}_${architecture}.deb"
+    cp "$DEB_FILE" "$OUTPUT_DEB"
+    
+    # Create metadata file
+    cat > "$CMGR_CACHE/metadata.json" << EOF
+{
+    "version": "${VERSION}",
+    "format": "deb",
+    "file": "claude-desktop_${VERSION}_${architecture}.deb",
+    "build_date": "$(date -Iseconds)"
+}
+EOF
+    
+    # Cleanup if requested
+    if [ "$cleanup" = "yes" ]; then
+        echo "🧹 Cleaning up build directory..."
+        rm -rf "$build_dir"
+    fi
+    
+    echo "✅ Build complete!"
+    echo "📦 Package created: $OUTPUT_DEB"
+    echo ""
+    echo "To install the package, run: sudo apt install $OUTPUT_DEB"
+    echo "or: sudo dpkg -i $OUTPUT_DEB && sudo apt -f install"
+    
+    return 0
+}
+
 cmd_help() {
     show_help
 }
@@ -922,6 +1323,12 @@ main() {
             ;;
         update-title)
             cmd_update_title "$@"
+            ;;
+        verify-isolation)
+            cmd_verify_isolation "$@"
+            ;;
+        build)
+            cmd_build "$@"
             ;;
         help|--help|-h)
             cmd_help

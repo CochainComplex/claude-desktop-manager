@@ -22,7 +22,9 @@ Commands:
   execute <n> [command]  Execute a Claude Desktop command in instance
   fix-warnings <n>       Fix MaxListenersExceededWarning in an instance
   update-title <n>       Update window title to show instance name
+  verify-isolation <n>   Verify that sandbox isolation is working correctly
   patch-app <n>          Patch app.asar directly with instance name and fix warnings
+  build                  Build the latest Claude Desktop .deb package
   help                   Show this help message
 
 Create Options:
@@ -51,9 +53,11 @@ Examples:
   cmgr alias work                         Create an alias for the work instance
   cmgr fix-warnings work                  Fix MaxListenersExceededWarning in work instance
   cmgr update-title work                  Update window title to show the instance name
+  cmgr verify-isolation work              Verify that sandbox isolation is working correctly
   cmgr mcp work --auto-approve            Configure work instance to auto-approve MCP tools
   cmgr mcp work --ports                   Configure unique MCP ports for work instance
   cmgr mcp work --reset-ports             Reset MCP port configuration for work instance
+  cmgr build                              Build the latest Claude Desktop .deb package
 
 Multiple Instance Management:
   By default, each Claude Desktop instance is created with unique port ranges for MCP tools

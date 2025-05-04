@@ -148,7 +148,9 @@ run_in_sandbox() {
         --proc /proc
         --tmpfs /tmp
         --share-net  # Skip network namespace isolation to avoid permission issues
-        # Map the sandbox directory to /home/claude inside the container
+        # First create an empty /home directory
+        --tmpfs /home
+        # Then map only the sandbox directory to /home/claude inside the container
         --bind "${sandbox_home}" "${sandbox_user_home}"
     )
     
@@ -218,21 +220,11 @@ run_in_sandbox() {
         fi
     done
     
-    # CRITICAL: Block access to real user's home directory - Use multiple approaches to ensure blocking
-    # First, mount tmpfs over the real home
-    bwrap_cmd+=(--tmpfs "${HOME}")
-    # Also try to block direct path to user home
-    if [ "${HOME}" != "/home/awarth" ]; then
-        bwrap_cmd+=(--tmpfs "/home/awarth")
-    fi
-    # Make sure all known paths to the real home are blocked
-    for username in awarth root; do
-        if [ -d "/home/$username" ] && [ "/home/$username" != "${sandbox_user_home}" ]; then
-            bwrap_cmd+=(--tmpfs "/home/$username")
-            echo "Blocking access to $username home: /home/$username"
-        fi
-    done
-    echo "Blocking access to real user home directories"
+    # Our comprehensive isolation approach:
+    # 1. We mount tmpfs on /home first (done above in bwrap_cmd initialization)
+    # 2. Then we only bind our sandbox directory to /home/claude
+    # This ensures no access to any real home directories
+    echo "Complete isolation of /home directory with only sandbox access to /home/claude"
     
     # Try to determine the correct display
     local display_to_use="${DISPLAY:-:0}"
