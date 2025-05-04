@@ -140,7 +140,23 @@ apply_fix() {
     mkdir -p "/etc/apparmor.d/local"
     
     echo -e "${BLUE}Trying multiple approaches to fix AppArmor restrictions:${NC}"
-    echo -e "${BLUE}1. Creating comprehensive local override for unprivileged_userns${NC}"
+    echo -e "${BLUE}1. Creating a dedicated bwrap profile for Ubuntu 24.04${NC}"
+    
+    # Create dedicated bwrap profile
+    cat > "/etc/apparmor.d/bwrap" << EOF
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  # Site-specific additions and overrides
+  include if exists <local/bwrap>
+}
+EOF
+    
+    echo -e "${GREEN}✓ Created dedicated bwrap profile${NC}"
+    
+    echo -e "${BLUE}2. Creating comprehensive local override for unprivileged_userns${NC}"
     
     # Create local override for unprivileged_userns
     cat > "/etc/apparmor.d/local/unprivileged_userns" << EOF
@@ -165,7 +181,7 @@ EOF
     
     echo -e "${GREEN}✓ Created comprehensive local override for unprivileged_userns${NC}"
     
-    echo -e "${BLUE}2. Creating force-complain entry to make profile non-enforcing${NC}"
+    echo -e "${BLUE}3. Creating force-complain entry to make profile non-enforcing${NC}"
     # Also put the profile in complain mode which is more permissive
     mkdir -p "/etc/apparmor.d/force-complain"
     if [ ! -e "/etc/apparmor.d/force-complain/unprivileged_userns" ]; then
@@ -174,6 +190,17 @@ EOF
     else
         echo -e "${GREEN}✓ Profile already in complain mode${NC}"
     fi
+    
+    # Optionally create sysctl override file for kernel.apparmor_restrict_unprivileged_userns
+    echo -e "${BLUE}4. Creating sysctl override for AppArmor user namespace restrictions${NC}"
+    cat > "/etc/sysctl.d/60-cmgr-apparmor-namespace.conf" << EOF
+# Claude Desktop Manager - AppArmor user namespace restrictions override
+# This allows bubblewrap to work properly for Claude Desktop Manager
+kernel.apparmor_restrict_unprivileged_userns = 0
+EOF
+    
+    echo -e "${GREEN}✓ Created sysctl override for AppArmor user namespace restrictions${NC}"
+    sysctl -p /etc/sysctl.d/60-cmgr-apparmor-namespace.conf
     
     # Reload AppArmor to apply changes
     echo -e "${BLUE}Reloading AppArmor...${NC}"
@@ -194,7 +221,9 @@ EOF
     
     # Verify that profiles were correctly loaded
     echo -e "${BLUE}Verifying AppArmor profile status...${NC}"
-    if aa-status | grep -q "unprivileged_userns.*complain"; then
+    if aa-status | grep -q "bwrap"; then
+        echo -e "${GREEN}✓ bwrap profile is now loaded${NC}"
+    elif aa-status | grep -q "unprivileged_userns.*complain"; then
         echo -e "${GREEN}✓ unprivileged_userns profile is now in complain mode${NC}"
     else
         echo -e "${YELLOW}⚠ Could not verify profile status - requires sudo privileges${NC}"

@@ -91,16 +91,38 @@ find_backup() {
 revert_changes() {
     echo -e "${BLUE}Reverting AppArmor changes...${NC}"
     
+    # Remove dedicated bwrap profile
+    if [ -f "/etc/apparmor.d/bwrap" ]; then
+        rm -f "/etc/apparmor.d/bwrap"
+        echo -e "${GREEN}✓ Removed dedicated bwrap profile${NC}"
+    fi
+    
     # Remove local override
     if [ -f "/etc/apparmor.d/local/unprivileged_userns" ]; then
         rm -f "/etc/apparmor.d/local/unprivileged_userns"
         echo -e "${GREEN}✓ Removed local override for unprivileged_userns${NC}"
     fi
     
+    # Remove local bwrap override if it exists
+    if [ -f "/etc/apparmor.d/local/bwrap" ]; then
+        rm -f "/etc/apparmor.d/local/bwrap"
+        echo -e "${GREEN}✓ Removed local override for bwrap${NC}"
+    fi
+    
     # Remove force-complain symlink if exists
     if [ -L "/etc/apparmor.d/force-complain/unprivileged_userns" ]; then
         rm -f "/etc/apparmor.d/force-complain/unprivileged_userns"
         echo -e "${GREEN}✓ Removed force-complain symlink for unprivileged_userns${NC}"
+    fi
+    
+    # Remove sysctl override for AppArmor user namespace restrictions
+    if [ -f "/etc/sysctl.d/60-cmgr-apparmor-namespace.conf" ]; then
+        rm -f "/etc/sysctl.d/60-cmgr-apparmor-namespace.conf"
+        echo -e "${GREEN}✓ Removed sysctl override for AppArmor user namespace restrictions${NC}"
+        
+        # Apply system sysctl settings to restore defaults
+        echo -e "${BLUE}Restoring default sysctl settings...${NC}"
+        sysctl --system
     fi
     
     # Remove marker file

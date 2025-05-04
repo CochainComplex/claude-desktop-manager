@@ -71,6 +71,33 @@ else
         bwrap --share-net --unshare-user --unshare-pid --unshare-uts --unshare-ipc --bind / / echo 'Bubblewrap test' 2>&1 | head -2
     fi
     
+    # Check for Ubuntu 24.04 specific AppArmor issues
+    echo -e "\n${BLUE}Checking for Ubuntu 24.04 specific AppArmor restrictions...${NC}"
+    
+    ubuntu_version=$(lsb_release -rs)
+    if [[ "$ubuntu_version" == "24.04" ]]; then
+        echo -e "${YELLOW}⚠ Running on Ubuntu 24.04, which has additional AppArmor restrictions on user namespaces${NC}"
+        
+        # Check for existence of dedicated AppArmor profile for bwrap
+        if [ -f "/etc/apparmor.d/bwrap" ]; then
+            echo -e "${GREEN}✓ Dedicated AppArmor profile for bubblewrap exists${NC}"
+        else
+            echo -e "${RED}✗ No dedicated AppArmor profile for bubblewrap found${NC}"
+            echo -e "${YELLOW}Ubuntu 24.04 requires a specific profile for bubblewrap to work${NC}"
+        fi
+        
+        # Check for sysctl settings related to AppArmor user namespace restrictions
+        if sysctl -a 2>/dev/null | grep -q "kernel.apparmor_restrict_unprivileged_userns"; then
+            apparmor_restrict=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)
+            if [ "$apparmor_restrict" = "1" ]; then
+                echo -e "${RED}✗ AppArmor unprivileged user namespace restrictions are enabled${NC}"
+                echo -e "${YELLOW}This is likely preventing bubblewrap from working${NC}"
+            else
+                echo -e "${GREEN}✓ AppArmor unprivileged user namespace restrictions are disabled${NC}"
+            fi
+        fi
+    fi
+    
     # Check if it's likely an AppArmor issue
     if bwrap --unshare-all --bind / / echo 'Test' 2>&1 | grep -q "Permission denied"; then
         echo -e "\n${YELLOW}This looks like an AppArmor restriction.${NC}"
@@ -81,14 +108,14 @@ else
         bwrap --unshare-all --bind / / echo 'Test' &>/dev/null
         sleep 1
         
-        if journalctl -k --since "1 minute ago" | grep -i "apparmor.*bwrap.*denied"; then
+        if journalctl -k --since "1 minute ago" | grep -i "apparmor.*denied"; then
             echo -e "\n${RED}Confirmed: AppArmor is blocking bubblewrap!${NC}"
             echo -e "${YELLOW}To fix this issue, run:${NC}"
             echo -e "  sudo $(dirname "$0")/fix-apparmor.sh"
         else
             echo "No specific AppArmor denial messages found. This might be a different issue."
             echo "Try running with sudo to see more logs:"
-            echo "  sudo journalctl -k | grep -i apparmor | grep -i denied | grep -i bwrap"
+            echo "  sudo journalctl -k | grep -i apparmor | grep -i denied"
         fi
     fi
 fi

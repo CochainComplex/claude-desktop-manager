@@ -6,6 +6,10 @@ This document explains how to resolve issues with AppArmor preventing Claude Des
 
 Claude Desktop Manager uses [`bubblewrap`](https://github.com/containers/bubblewrap) for creating isolated sandboxes, which requires unprivileged user namespaces. On Ubuntu 24.04 and other systems with AppArmor enabled, the default AppArmor policy restricts unprivileged users from creating user namespaces and performing network namespace operations, even when the kernel is configured to allow it.
 
+### Ubuntu 24.04 Specific Issues
+
+Ubuntu 24.04 introduces new AppArmor-based restrictions on unprivileged user namespaces as a security measure. These restrictions require applications to have explicit AppArmor profiles to use user namespaces. Without proper profiles, bubblewrap fails to create sandboxes, preventing Claude Desktop Manager from functioning correctly.
+
 Symptoms of these issues include:
 
 - Error messages like `bwrap: setting up uid map: Permission denied`
@@ -92,9 +96,28 @@ This script will:
 
 The fix works through a comprehensive multi-layered approach:
 
-1. **Network Namespace Sharing**: By default, Claude Desktop Manager now uses `--share-net` to skip network namespace isolation, avoiding the most common permission errors.
+1. **Dedicated bubblewrap Profile**: For Ubuntu 24.04, we create a dedicated AppArmor profile at `/etc/apparmor.d/bwrap` that explicitly allows bubblewrap to use user namespaces:
 
-2. **Comprehensive AppArmor Override**: A local AppArmor policy override is created at `/etc/apparmor.d/local/unprivileged_userns` with broader permissions:
+```
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  # Site-specific additions and overrides
+  include if exists <local/bwrap>
+}
+```
+
+2. **AppArmor User Namespace Restrictions**: We optionally disable the AppArmor user namespace restrictions via sysctl by creating a configuration file at `/etc/sysctl.d/60-cmgr-apparmor-namespace.conf`:
+
+```
+kernel.apparmor_restrict_unprivileged_userns = 0
+```
+
+3. **Network Namespace Sharing**: By default, Claude Desktop Manager uses `--share-net` to skip network namespace isolation, avoiding the most common permission errors.
+
+4. **Comprehensive AppArmor Override**: A local AppArmor policy override is created at `/etc/apparmor.d/local/unprivileged_userns` with broader permissions:
 
 ```
 # Allow full capability access
@@ -109,39 +132,92 @@ allow owner /proc/*/gid_map rw,
 allow owner /proc/*/setgroups rw,
 ```
 
-3. **Force-Complain Mode**: The profile is placed in AppArmor's non-enforcing complain mode by creating a symlink in `/etc/apparmor.d/force-complain/`.
+5. **Force-Complain Mode**: The profile is placed in AppArmor's non-enforcing complain mode by creating a symlink in `/etc/apparmor.d/force-complain/`.
 
-4. **Kernel Parameter Updates**: The script ensures kernel parameters are correctly set by creating a sysctl configuration file.
+6. **Kernel Parameter Updates**: The script ensures kernel parameters are correctly set by creating a sysctl configuration file.
 
-5. **Aggressive Fallback Options**: If standard fixes don't work, the script can:
-   - Use the `aa-complain` tool to explicitly set the profile to complain mode
-   - Temporarily disable AppArmor if needed (with user permission)
-- Modifies only the specific restrictions that are blocking bubblewrap
-- Preserves most of AppArmor's security protections
+These changes:
+- Target both Ubuntu 24.04's specific restrictions and other AppArmor limitations
+- Modify only the specific restrictions that are blocking bubblewrap
+- Preserve most of AppArmor's security protections
 - Can be easily reverted without affecting system stability
-- Works without disabling AppArmor completely
+- Work without disabling AppArmor completely
 
 ## Alternative Solutions
 
 If the provided scripts don't resolve the issue, you have these alternative options:
 
-### Option 1: Put AppArmor in Complain Mode for User Namespaces
+### Option 1: Create a Manual bubblewrap Profile (Ubuntu 24.04)
+
+Create a dedicated AppArmor profile for bubblewrap:
+
+```bash
+sudo tee /etc/apparmor.d/bwrap << EOF
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  # Site-specific additions and overrides
+  include if exists <local/bwrap>
+}
+EOF
+
+sudo systemctl reload apparmor
+```
+
+### Option 2: Disable AppArmor User Namespace Restrictions (Ubuntu 24.04)
+
+Disable only the AppArmor user namespace restrictions, which is less severe than disabling AppArmor entirely:
+
+```bash
+echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d/60-apparmor-namespace.conf
+sudo sysctl -p /etc/sysctl.d/60-apparmor-namespace.conf
+```
+
+### Option 3: Put AppArmor in Complain Mode for User Namespaces
 
 ```bash
 sudo ln -s /etc/apparmor.d/unprivileged_userns /etc/apparmor.d/force-complain/
 sudo systemctl reload apparmor
 ```
 
-### Option 2: Temporarily Disable AppArmor
+### Option 4: Temporarily Disable AppArmor (Most Aggressive)
 
 ```bash
 sudo systemctl stop apparmor
 sudo systemctl disable apparmor
 ```
 
-Note: This is more aggressive and disables all AppArmor protection, which may reduce system security.
+Note: This is the most aggressive approach and disables all AppArmor protection, which may significantly reduce system security.
 
 ## Troubleshooting
+
+### Ubuntu 24.04 Specific Issues
+
+1. **Verify Ubuntu's AppArmor Restrictions**:
+   ```bash
+   sysctl kernel.apparmor_restrict_unprivileged_userns
+   ```
+   A value of 1 indicates restrictions are enabled.
+
+2. **Check if Official Fix Is Available**:
+   Ubuntu developers are aware of this issue and may have released an official fix. Check for updates:
+   ```bash
+   sudo apt update && sudo apt upgrade
+   ```
+
+3. **Verify bubblewrap Profile Loading**:
+   ```bash
+   sudo aa-status | grep bwrap
+   ```
+   If bwrap is not listed, the profile may not be loaded correctly.
+
+4. **Test Simple bubblewrap Command**:
+   After applying fixes, test with a simple command:
+   ```bash
+   bwrap --unshare-user --bind / / echo "test"
+   ```
 
 ### Script Reports Success But Bubblewrap Still Fails
 
@@ -179,6 +255,21 @@ Note: This is more aggressive and disables all AppArmor protection, which may re
    ```bash
    sudo mkdir -p /etc/apparmor.d/local
    echo "allow capability setpcap," | sudo tee /etc/apparmor.d/local/unprivileged_userns
+   sudo systemctl reload apparmor
+   ```
+
+4. **Try the Manual Ubuntu 24.04 Fix**:
+   If all else fails, try the most direct fix:
+   ```bash
+   sudo tee /etc/apparmor.d/bwrap << EOF
+   abi <abi/4.0>,
+   include <tunables/global>
+
+   profile bwrap /usr/bin/bwrap flags=(unconfined) {
+     userns,
+     include if exists <local/bwrap>
+   }
+   EOF
    sudo systemctl reload apparmor
    ```
 
