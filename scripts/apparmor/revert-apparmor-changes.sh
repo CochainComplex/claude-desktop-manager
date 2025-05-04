@@ -1,6 +1,5 @@
 #!/bin/bash
-# revert-apparmor-changes.sh - Revert AppArmor changes made by fix-apparmor.sh
-# This script safely restores the original AppArmor configuration
+# revert-apparmor-changes.sh - Revert system changes made by fix-apparmor.sh
 
 set -eo pipefail
 
@@ -13,7 +12,7 @@ NC='\033[0m' # No Color
 
 # Print header
 echo -e "${BLUE}====================================================${NC}"
-echo -e "${BLUE}   Claude Desktop Manager - AppArmor Revert Utility  ${NC}"
+echo -e "${BLUE}   Claude Desktop Manager - Change Revert Utility   ${NC}"
 echo -e "${BLUE}====================================================${NC}"
 echo ""
 
@@ -24,41 +23,24 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-# Function to check if our AppArmor changes are active
+# Check if our changes are active
 check_if_applied() {
-    echo -e "${BLUE}Checking if AppArmor changes are applied...${NC}"
+    echo -e "${BLUE}Checking if changes are applied...${NC}"
     
-    if [ -f "/etc/apparmor.d/local/.cmgr-apparmor-fix-applied" ]; then
-        echo -e "${GREEN}✓ Found marker file indicating AppArmor changes were applied${NC}"
+    if [ -f "/etc/sysctl.d/60-cmgr-apparmor-namespace.conf" ]; then
+        echo -e "${GREEN}✓ Found sysctl override created by Claude Desktop Manager${NC}"
         return 0
-    elif [ -f "/etc/apparmor.d/local/unprivileged_userns" ]; then
-        # Check if file contains our modifications
-        if grep -q "Created by Claude Desktop Manager" "/etc/apparmor.d/local/unprivileged_userns"; then
-            echo -e "${GREEN}✓ Found local override created by Claude Desktop Manager${NC}"
-            return 0
-        else
-            echo -e "${YELLOW}⚠ Found local override, but it wasn't created by Claude Desktop Manager${NC}"
-            echo "Contents of local override:"
-            cat "/etc/apparmor.d/local/unprivileged_userns"
-            echo ""
-            echo -e "${YELLOW}Removing this file might impact other applications.${NC}"
-            echo "Do you want to continue? (y/n)"
-            read -r response
-            if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
-                return 0
-            else
-                echo -e "${RED}Operation cancelled.${NC}"
-                exit 0
-            fi
-        fi
+    elif [ -f "/etc/apparmor.d/local/.cmgr-apparmor-fix-applied" ]; then
+        echo -e "${GREEN}✓ Found marker file indicating changes were applied${NC}"
+        return 0
     else
-        echo -e "${YELLOW}⚠ No local override found for unprivileged_userns${NC}"
-        echo -e "${YELLOW}  It appears that AppArmor changes were not applied or were already reverted.${NC}"
+        echo -e "${YELLOW}⚠ No changes appear to be applied${NC}"
+        echo -e "${YELLOW}  System may already be in its original state${NC}"
         return 1
     fi
 }
 
-# Function to find latest backup
+# Find the latest backup
 find_backup() {
     echo -e "${BLUE}Looking for backup...${NC}"
     
@@ -87,35 +69,11 @@ find_backup() {
     fi
 }
 
-# Function to revert changes
+# Revert changes
 revert_changes() {
-    echo -e "${BLUE}Reverting AppArmor changes...${NC}"
+    echo -e "${BLUE}Reverting system changes...${NC}"
     
-    # Remove dedicated bwrap profile
-    if [ -f "/etc/apparmor.d/bwrap" ]; then
-        rm -f "/etc/apparmor.d/bwrap"
-        echo -e "${GREEN}✓ Removed dedicated bwrap profile${NC}"
-    fi
-    
-    # Remove local override
-    if [ -f "/etc/apparmor.d/local/unprivileged_userns" ]; then
-        rm -f "/etc/apparmor.d/local/unprivileged_userns"
-        echo -e "${GREEN}✓ Removed local override for unprivileged_userns${NC}"
-    fi
-    
-    # Remove local bwrap override if it exists
-    if [ -f "/etc/apparmor.d/local/bwrap" ]; then
-        rm -f "/etc/apparmor.d/local/bwrap"
-        echo -e "${GREEN}✓ Removed local override for bwrap${NC}"
-    fi
-    
-    # Remove force-complain symlink if exists
-    if [ -L "/etc/apparmor.d/force-complain/unprivileged_userns" ]; then
-        rm -f "/etc/apparmor.d/force-complain/unprivileged_userns"
-        echo -e "${GREEN}✓ Removed force-complain symlink for unprivileged_userns${NC}"
-    fi
-    
-    # Remove sysctl override for AppArmor user namespace restrictions
+    # Remove the sysctl override for AppArmor user namespace restrictions
     if [ -f "/etc/sysctl.d/60-cmgr-apparmor-namespace.conf" ]; then
         rm -f "/etc/sysctl.d/60-cmgr-apparmor-namespace.conf"
         echo -e "${GREEN}✓ Removed sysctl override for AppArmor user namespace restrictions${NC}"
@@ -125,100 +83,68 @@ revert_changes() {
         sysctl --system
     fi
     
-    # Remove marker file
-    if [ -f "/etc/apparmor.d/local/.cmgr-apparmor-fix-applied" ]; then
-        rm -f "/etc/apparmor.d/local/.cmgr-apparmor-fix-applied"
-        echo -e "${GREEN}✓ Removed marker file${NC}"
-    fi
-    
-    # Restore kernel parameters if we changed them
+    # Remove kernel parameter config if requested
     if [ -f "/etc/sysctl.d/99-userns.conf" ] && grep -q "unprivileged_userns_clone" "/etc/sysctl.d/99-userns.conf"; then
-        echo -e "${BLUE}Found kernel parameter configuration file.${NC}"
+        echo -e "${BLUE}Found unprivileged user namespaces configuration file.${NC}"
         echo -e "${YELLOW}Do you want to remove it and restore default kernel parameters? (y/n)${NC}"
         read -r kernel_response
         if [[ "$kernel_response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
             rm -f "/etc/sysctl.d/99-userns.conf"
             echo -e "${GREEN}✓ Removed kernel parameter configuration${NC}"
-            echo -e "${YELLOW}Note: This change will take effect after reboot${NC}"
-            echo -e "${YELLOW}     or after running 'sudo sysctl --system'${NC}"
+            sysctl --system
         else
             echo -e "${YELLOW}Keeping kernel parameter configuration${NC}"
         fi
     fi
     
+    # Clean up any remaining AppArmor changes
+    if [ -f "/etc/apparmor.d/local/.cmgr-apparmor-fix-applied" ]; then
+        rm -f "/etc/apparmor.d/local/.cmgr-apparmor-fix-applied"
+        echo -e "${GREEN}✓ Removed marker file${NC}"
+    fi
+    
     # Restore from backup if available
-    if [ -n "$BACKUP_DIR" ] && [ -f "$BACKUP_DIR/unprivileged_userns" ]; then
-        # Only restore if original file exists and is different
-        if [ -f "/etc/apparmor.d/unprivileged_userns" ]; then
-            if ! cmp -s "$BACKUP_DIR/unprivileged_userns" "/etc/apparmor.d/unprivileged_userns"; then
-                cp "$BACKUP_DIR/unprivileged_userns" "/etc/apparmor.d/"
-                echo -e "${GREEN}✓ Restored original unprivileged_userns profile from backup${NC}"
-            else
-                echo -e "${GREEN}✓ Original profile unchanged, no restoration needed${NC}"
-            fi
-        else
-            cp "$BACKUP_DIR/unprivileged_userns" "/etc/apparmor.d/"
-            echo -e "${GREEN}✓ Restored original unprivileged_userns profile from backup${NC}"
-        fi
-    fi
-    
-    # Reload AppArmor to apply changes
-    echo -e "${BLUE}Reloading AppArmor...${NC}"
-    if systemctl reload apparmor; then
-        echo -e "${GREEN}✓ AppArmor reloaded successfully${NC}"
+    if [ -n "$BACKUP_DIR" ] && [ -f "$BACKUP_DIR/apparmor_restrict_unprivileged_userns" ]; then
+        echo -e "${BLUE}Restoring AppArmor restrictions from backup...${NC}"
+        local restriction_value=$(grep -o "[01]" "$BACKUP_DIR/apparmor_restrict_unprivileged_userns" || echo "1")
+        echo "kernel.apparmor_restrict_unprivileged_userns = $restriction_value" | sysctl -p -
+        echo -e "${GREEN}✓ Restored original AppArmor restriction value: $restriction_value${NC}"
     else
-        echo -e "${RED}✗ Failed to reload AppArmor${NC}"
-        echo "Trying to restart AppArmor instead..."
-        if systemctl restart apparmor; then
-            echo -e "${GREEN}✓ AppArmor restarted successfully${NC}"
-        else
-            echo -e "${RED}✗ Failed to restart AppArmor${NC}"
-            echo "Please reload or restart AppArmor manually with:"
-            echo "sudo systemctl restart apparmor"
-            return 1
-        fi
+        echo -e "${BLUE}Re-enabling default AppArmor restrictions...${NC}"
+        echo "kernel.apparmor_restrict_unprivileged_userns = 1" | sysctl -p -
+        echo -e "${GREEN}✓ Reset AppArmor restrictions to default (enabled)${NC}"
     fi
-    
-    # Allow a moment for changes to take effect
-    echo -e "${BLUE}Waiting for changes to take effect...${NC}"
-    sleep 3
     
     return 0
 }
 
-# Function to validate revert
+# Validate the revert
 validate_revert() {
     echo -e "${BLUE}Validating revert...${NC}"
+    sleep 2
     
-    # Check if local override is gone
-    if [ -f "/etc/apparmor.d/local/unprivileged_userns" ]; then
-        echo -e "${RED}✗ Local override still exists at /etc/apparmor.d/local/unprivileged_userns${NC}"
+    # Check if sysctl override is gone
+    if [ -f "/etc/sysctl.d/60-cmgr-apparmor-namespace.conf" ]; then
+        echo -e "${RED}✗ sysctl override still exists${NC}"
         return 1
     else
-        echo -e "${GREEN}✓ Local override successfully removed${NC}"
+        echo -e "${GREEN}✓ sysctl override successfully removed${NC}"
     fi
     
-    # Check if force-complain symlink is gone
-    if [ -L "/etc/apparmor.d/force-complain/unprivileged_userns" ]; then
-        echo -e "${RED}✗ Force-complain symlink still exists${NC}"
-        return 1
+    # Check if AppArmor restrictions are restored
+    local current_restriction=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo "unknown")
+    if [ "$current_restriction" = "1" ]; then
+        echo -e "${GREEN}✓ AppArmor restrictions have been restored${NC}"
     else
-        echo -e "${GREEN}✓ Force-complain symlink successfully removed${NC}"
+        echo -e "${YELLOW}⚠ AppArmor restrictions are still disabled (value: $current_restriction)${NC}"
+        echo -e "${YELLOW}  You may need to reboot your system for changes to take full effect${NC}"
     fi
     
-    # Check if bubblewrap now fails as expected with different isolation modes
-    echo -e "${BLUE}Testing bubblewrap with full isolation...${NC}"
-    if ! bwrap --unshare-all --bind / / echo 'Bubblewrap test' &>/dev/null; then
-        echo -e "${GREEN}✓ Bubblewrap with full isolation correctly fails${NC}"
-    else
-        echo -e "${YELLOW}⚠ Bubblewrap with full isolation still works${NC}"
-        echo -e "${YELLOW}  This might indicate that other system settings are allowing it${NC}"
-    fi
-    
+    # Check if bubblewrap now fails as expected
     echo -e "${BLUE}Testing bubblewrap with shared network...${NC}"
-    if ! bwrap --share-net --unshare-user --unshare-pid --unshare-uts --unshare-ipc --bind / / echo 'Bubblewrap test' &>/dev/null; then
+    if ! bwrap --share-net --unshare-user --unshare-pid --bind / / echo 'Test' &>/dev/null; then
         echo -e "${GREEN}✓ Bubblewrap with shared network correctly fails${NC}"
-        echo -e "${GREEN}  This confirms that AppArmor restrictions are back in place${NC}"
+        echo -e "${GREEN}  This confirms that the system is restored to its original state${NC}"
     else
         echo -e "${YELLOW}⚠ Bubblewrap with shared network still works${NC}"
         echo -e "${YELLOW}  Consider rebooting your system for changes to take full effect${NC}"
@@ -229,16 +155,15 @@ validate_revert() {
 
 # Main execution
 main() {
-    # Banner
-    echo -e "${BLUE}Starting AppArmor revert for Claude Desktop Manager${NC}"
+    echo -e "${BLUE}Starting revert for Claude Desktop Manager sandboxing changes${NC}"
     echo -e "${BLUE}---------------------------------------------------${NC}"
-    echo "This script will revert the AppArmor changes made by fix-apparmor.sh."
-    echo "Claude Desktop Manager's sandboxing functionality may not work after this operation."
+    echo "This script will revert the system changes made by fix-apparmor.sh."
+    echo "Claude Desktop Manager's sandboxing functionality will not work after this operation."
     echo ""
     
     # Check if changes are applied
     if ! check_if_applied; then
-        echo -e "${YELLOW}No AppArmor changes seem to be applied.${NC}"
+        echo -e "${YELLOW}No changes seem to be applied.${NC}"
         echo "Do you want to continue anyway? (y/n)"
         read -r response
         if [[ ! "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
@@ -251,7 +176,7 @@ main() {
     find_backup
     
     echo ""
-    echo -e "${YELLOW}This script will revert your AppArmor configuration to its original state.${NC}"
+    echo -e "${YELLOW}This script will revert your system to its original state.${NC}"
     echo -e "${YELLOW}Claude Desktop Manager may not work correctly after this operation.${NC}"
     echo "Do you want to continue? (y/n)"
     read -r response
@@ -269,12 +194,12 @@ main() {
     
     echo ""
     echo -e "${GREEN}=============================================${NC}"
-    echo -e "${GREEN}  AppArmor changes successfully reverted!    ${NC}"
+    echo -e "${GREEN}  System changes successfully reverted!      ${NC}"
     echo -e "${GREEN}  System has been restored to original state.${NC}"
     echo -e "${GREEN}=============================================${NC}"
     
     echo ""
-    echo -e "${YELLOW}Note: Claude Desktop Manager's sandboxing functionality may not work.${NC}"
+    echo -e "${YELLOW}Note: Claude Desktop Manager's sandboxing functionality will not work.${NC}"
     echo -e "${YELLOW}If you need to use Claude Desktop Manager, run:${NC}"
     echo "sudo $(dirname "$0")/fix-apparmor.sh"
     
