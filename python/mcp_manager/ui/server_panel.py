@@ -261,8 +261,15 @@ class ServerPanel(QWidget):
         args_text = self.args_edit.text().strip()
         args = args_text.split() if args_text else []
         
-        # Ensure --port argument is present
+        # Ensure --port argument is present and valid
         port = self.port_spin.value()
+        
+        # Validate port
+        if port <= 0 or port > 65535:
+            # Get port from port manager if the current one is invalid
+            port = self.port_manager.get_tool_port(self.current_instance, server_name)
+            
+        # Update port in args
         if "--port" in args:
             port_index = args.index("--port") + 1
             if port_index < len(args):

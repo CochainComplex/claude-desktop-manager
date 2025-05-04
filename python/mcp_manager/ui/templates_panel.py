@@ -15,7 +15,7 @@ class TemplatesPanel(QWidget):
     """Panel for managing MCP server templates"""
     
     # Signals
-    template_updated = pyqtSignal()
+    template_updated = pyqtSignal()  # Emitted when a template is added, updated, or removed
     
     def __init__(self, template_store):
         super().__init__()
@@ -234,7 +234,7 @@ class TemplatesPanel(QWidget):
                         break
             
             self.current_template = name
-            self.template_updated.emit()
+            self.template_updated.emit()  # Emit signal so other components know a template was updated
             QMessageBox.information(self, "Template Saved", 
                                    f"Template '{name}' saved successfully.")
         else:
@@ -276,7 +276,7 @@ class TemplatesPanel(QWidget):
             self.save_btn.setEnabled(False)
             self.revert_btn.setEnabled(False)
             self.delete_btn.setEnabled(False)
-            self.template_updated.emit()
+            self.template_updated.emit()  # Emit signal so other components know a template was removed
         else:
             QMessageBox.warning(self, "Delete Failed", 
                                "Failed to delete template.")

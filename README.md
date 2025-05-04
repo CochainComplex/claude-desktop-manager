@@ -13,6 +13,7 @@ This project extends [emsi/claude-desktop](https://github.com/emsi/claude-deskto
 - Create isolated Claude Desktop instances using bubblewrap sandboxing
 - Run multiple instances simultaneously with independent MCP tools
 - Automatic port management to prevent tool conflicts between instances
+- Global MCP server manager GUI for centralized configuration
 - Generate and manage quick-access aliases for each instance
 - Launch, list, and remove instances with simple commands
 - Support auto-approval of MCP (Model Context Protocol) tools
@@ -79,7 +80,29 @@ cmgr remove my-instance
 
 # Get help
 cmgr help
+
+# Launch the global MCP server manager
+cmgr mcp-gui
 ```
+
+### MCP GUI Manager
+
+The MCP GUI Manager provides a graphical interface for managing MCP servers across all your Claude Desktop instances:
+
+```bash
+# Launch the MCP GUI Manager
+cmgr mcp-gui
+```
+
+Features of the MCP GUI Manager include:
+
+- Global management of all Claude Desktop instances
+- Templates for quickly configuring MCP servers
+- Live monitoring of server status and logs
+- One-click deployment of servers to all instances
+- Automatic port management to prevent conflicts
+
+For more information, see the [MCP GUI documentation](docs/MCP_GUI.md).
 
 The `cmgr` tool provides a set of commands for managing Claude Desktop instances. Each command is designed to be simple and intuitive:
 
@@ -92,6 +115,7 @@ The `cmgr` tool provides a set of commands for managing Claude Desktop instances
 - `alias`: Create command aliases for quick access
 - `desktop`: Generate desktop shortcuts for easy launching
 - `mcp`: Configure MCP tool settings and auto-approval
+- `mcp-gui`: Launch the global MCP server manager with GUI
 - `execute`: Run commands within an instance's sandbox
 - `help`: Display usage information
 
@@ -323,6 +347,32 @@ You can edit the auto-approval script directly:
 # Edit using your preferred editor
 cmgr execute my-instance nano ~/.config/Claude/electron/mcp-auto-approve.js
 ```
+
+### Global MCP Server Manager GUI
+
+Claude Desktop Manager includes a graphical MCP server manager that provides a centralized interface for managing MCP servers across all your instances:
+
+```bash
+# Launch the MCP Server Manager GUI
+cmgr mcp-gui
+```
+
+The MCP Server Manager provides the following features:
+
+- **Global Instance Management**: Manage all your Claude Desktop instances from a single interface
+- **Server Templates**: Create and save MCP server templates for easy reuse
+- **Centralized Configuration**: Configure MCP servers for any instance
+- **Live Monitoring**: View real-time status and logs of running MCP servers
+- **One-Click Deployment**: Deploy server templates to one or all instances
+- **Port Management**: Automatic port allocation to prevent conflicts
+
+This makes it significantly easier to:
+1. Add new MCP servers to your instances
+2. Monitor server status and logs
+3. Maintain consistent configurations across instances
+4. Quickly deploy the same server to multiple instances
+
+The GUI requires PyQt5, which will be automatically installed when you first launch it.
 
 ### Using MCP Tools in Claude
 

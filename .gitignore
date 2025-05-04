@@ -1,0 +1,53 @@
+# Python virtual environment
+python/venv/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+*.egg-info/
+.eggs/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Logs
+*.log
+*.logs/
+logs/
+
+# Environment variables
+.env
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Editor directories and files
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+
+# Build artifacts
+*.deb
+*.AppImage
+*.exe
+
+# Sandbox and cache directories
+/sandboxes/
+.cmgr/
+
+# Local testing
+/testing/
