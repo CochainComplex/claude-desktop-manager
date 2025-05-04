@@ -20,6 +20,8 @@ launch_mcp_gui() {
     # Export necessary environment variables
     export CMGR_HOME="${CMGR_HOME}"
     export SANDBOX_BASE="${SANDBOX_BASE}"
+    # Set Python module path for proper importing
+    export PYTHONPATH="${SCRIPT_DIR}"
     
     # Create logs directory if it doesn't exist
     mkdir -p "${CMGR_HOME}/logs"
@@ -27,8 +29,8 @@ launch_mcp_gui() {
     # Launch Python GUI in background
     echo "Launching MCP Manager..."
     
-    # Launch and log output using system Python directly
-    python3 "${SCRIPT_DIR}/python/mcp_manager/main.py" > "${CMGR_HOME}/logs/mcp_gui.log" 2>&1 &
+    # Launch and log output using system Python with correct import path
+    cd "${SCRIPT_DIR}/python" && python3 -m mcp_manager.main > "${CMGR_HOME}/logs/mcp_gui.log" 2>&1 &
     PID=$!
     
     # Check if process started successfully
