@@ -334,6 +334,30 @@ These tools can be accessed within Claude conversations when approved.
 
 ## Troubleshooting
 
+### AppArmor Issues (Ubuntu 24.04)
+
+On Ubuntu 24.04 and other systems with AppArmor enabled, the default AppArmor policy restricts bubblewrap from creating user namespaces, which Claude Desktop Manager needs for its sandboxing functionality.
+
+Symptoms of this issue:
+- Error messages like `bwrap: setting up uid map: Permission denied`
+- AppArmor denial messages in system logs
+- Inability to create or start Claude Desktop instances
+
+**Quick fix:**
+
+```bash
+# Apply the AppArmor fix (requires sudo)
+sudo ./scripts/apparmor/fix-apparmor.sh
+```
+
+This script creates a local AppArmor override that allows bubblewrap to use user namespaces while maintaining most AppArmor protections. To revert these changes:
+
+```bash
+sudo ./scripts/apparmor/revert-apparmor-changes.sh
+```
+
+For detailed information about this issue and solution, see [README-APPARMOR.md](README-APPARMOR.md).
+
 ### System Permissions for Patching
 
 If you encounter errors during instance creation related to patching the `app.asar` file in system directories (e.g., `/usr/lib/claude-desktop/`), follow these steps:

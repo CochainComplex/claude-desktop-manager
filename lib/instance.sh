@@ -117,10 +117,54 @@ list_instances() {
     return 0
 }
 
+# Function to check if bubblewrap can create user namespaces
+check_bwrap_userns() {
+    # Try a simple test with bubblewrap
+    if ! bwrap --unshare-all --bind / / echo 'Test' &>/dev/null; then
+        # Check if it's the permission denied error
+        local error_msg
+        error_msg=$(bwrap --unshare-all --bind / / echo 'Test' 2>&1)
+        
+        if [[ "$error_msg" == *"setting up uid map: Permission denied"* ]]; then
+            # Check if we have AppArmor on the system
+            if systemctl is-active --quiet apparmor && [ -f "/etc/apparmor.d/unprivileged_userns" ]; then
+                echo "WARNING: AppArmor appears to be blocking bubblewrap from creating user namespaces."
+                echo "This is a common issue on Ubuntu 24.04 and similar systems."
+                echo ""
+                echo "To fix this issue, you can run:"
+                echo "  sudo $SCRIPT_DIR/scripts/apparmor/fix-apparmor.sh"
+                echo ""
+                echo "For more information, see README-APPARMOR.md"
+                echo ""
+                
+                # Offer to run the fix script if it exists
+                if [ -x "$SCRIPT_DIR/scripts/apparmor/fix-apparmor.sh" ]; then
+                    echo "Would you like to run the fix script now? (y/n)"
+                    read -r response
+                    if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+                        echo "Running AppArmor fix script..."
+                        sudo "$SCRIPT_DIR/scripts/apparmor/fix-apparmor.sh"
+                        return $?
+                    else
+                        echo "Continuing without applying the fix. Instance creation may fail."
+                    fi
+                fi
+                
+                return 1
+            fi
+        fi
+    fi
+    
+    return 0
+}
+
 # Create a new instance
 create_instance() {
     local instance_name="$1"
     shift
+    
+    # Check if bubblewrap can create user namespaces before proceeding
+    check_bwrap_userns
     
     # Parse options
     local build_format="deb"

@@ -142,11 +142,12 @@ run_in_sandbox() {
     # Debug info
     echo "Display info: DISPLAY=${DISPLAY:-unset}, XAUTHORITY=${XAUTHORITY:-unset}"
     
-    # Base bubblewrap command - CHANGED: use different home path inside sandbox
+    # Base bubblewrap command - CHANGED: use different home path inside sandbox and share network namespace
     local bwrap_cmd=(
         bwrap
         --proc /proc
         --tmpfs /tmp
+        --share-net  # Skip network namespace isolation to avoid permission issues
         # Map the sandbox directory to /home/claude inside the container
         --bind "${sandbox_home}" "${sandbox_user_home}"
     )
@@ -308,8 +309,28 @@ run_in_sandbox() {
     echo "USER=${sandbox_username}"
     echo "CLAUDE_CONFIG_PATH=${sandbox_user_home}/.config/Claude/claude_desktop_config.json"
     
-    # Execute command in sandbox
-    "${bwrap_cmd[@]}" "$@"
+    # Execute command in sandbox - capture any error output
+    local error_output
+    error_output=$("${bwrap_cmd[@]}" "$@" 2>&1) || {
+        local result=$?
+        
+        # Check if this is a user namespace permission error
+        if [[ "$error_output" == *"setting up uid map: Permission denied"* ]]; then
+            echo -e "\033[1;31mERROR: bubblewrap cannot create user namespaces\033[0m"
+            echo "This is likely due to AppArmor restrictions on Ubuntu 24.04."
+            echo "To fix this issue:"
+            echo "  1. Run: sudo $(dirname "$0")/../scripts/apparmor/fix-apparmor.sh"
+            echo "  2. Try your operation again"
+            echo ""
+            echo "For more information, see README-APPARMOR.md"
+        else
+            # Display the original error
+            echo "$error_output"
+        fi
+        
+        return $result
+    }
+    
     local result=$?
     
     # Clean up temporary Xauthority file if we created one
