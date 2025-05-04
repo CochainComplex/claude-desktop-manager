@@ -107,13 +107,77 @@ try {
       packageJson.productName = `Claude (${instanceName})`;
     }
     
+    // Generate dynamic version based on date if not present
+    // This prevents hardcoded version numbers
+    if (!packageJson.version || packageJson.version.includes("0.9.2")) {
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
+      
+      packageJson.version = `1.0.0-${year}${month}${day}`;
+      console.log(`Updated version to: ${packageJson.version}`);
+    }
+    
     // Write back updated package.json
     fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
     console.log(`Updated package.json with instance name: ${instanceName}`);
   }
+
+  // Also look for version information in other files
+  const aboutFiles = findFiles(extractDir, /about\.js|\.version$/i);
+  
+  for (const aboutFile of aboutFiles) {
+    try {
+      console.log(`Checking for version info in: ${aboutFile}`);
+      const fileContent = fs.readFileSync(aboutFile, 'utf8');
+      
+      // Look for version patterns and replace them
+      if (fileContent.includes('0.9.2') || fileContent.includes('"version"')) {
+        console.log(`Found version info in: ${aboutFile}`);
+        
+        // Generate a dynamic version based on date
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        const dynamicVersion = `1.0.0-${year}${month}${day}`;
+        
+        // Replace hardcoded versions with our dynamic version
+        const updatedContent = fileContent
+          .replace(/(['"](0\.9\.2|0\.9\.3)['"])/g, `"${dynamicVersion}"`)
+          .replace(/(version:\s*['"](0\.9\.2|0\.9\.3)['"])/g, `version: "${dynamicVersion}"`);
+        
+        fs.writeFileSync(aboutFile, updatedContent);
+        console.log(`Updated version information in: ${aboutFile}`);
+      }
+    } catch (fileError) {
+      console.error(`Error processing ${aboutFile}: ${fileError.message}`);
+    }
+  }
 } catch (error) {
   console.error(`Error updating package.json: ${error.message}`);
   // Continue even if package.json update fails
+}
+
+// Helper function to find files by regex pattern
+function findFiles(startPath, pattern) {
+  let results = [];
+  if (!fs.existsSync(startPath)) return results;
+
+  const files = fs.readdirSync(startPath);
+  for (const file of files) {
+    const filePath = path.join(startPath, file);
+    const stat = fs.lstatSync(filePath);
+    
+    if (stat.isDirectory()) {
+      results = results.concat(findFiles(filePath, pattern));
+    } else if (pattern.test(file)) {
+      results.push(filePath);
+    }
+  }
+  
+  return results;
 }
 
 // Patch main process files
@@ -136,9 +200,17 @@ for (const filePath of mainProcessFiles) {
     }
     
     // Create patch - simple and focused on the essential functionality
+    // Get dynamic version for patching
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    const dynamicVersion = `1.0.0-${year}${month}${day}`;
+    
     const patch = `
 // CMGR: MaxListenersExceededWarning fix
 // CMGR: Instance name customization for ${instanceName}
+// CMGR: Version information fix - ${dynamicVersion}
 
 // Fix EventEmitter memory leak warnings
 const events = require('events');
@@ -147,6 +219,14 @@ events.EventEmitter.defaultMaxListeners = 30;
 // Patch require to customize BrowserWindow titles
 const originalModule = require('module');
 const originalRequire = originalModule.prototype.require;
+
+// Store correct version information
+const CMGR_APP_VERSION = "${dynamicVersion}";
+
+// Override app version getter if possible
+Object.defineProperty(process, 'cmgrAppVersion', {
+  get: function() { return CMGR_APP_VERSION; }
+});
 
 originalModule.prototype.require = function(path) {
   const result = originalRequire.apply(this, arguments);
@@ -167,6 +247,24 @@ originalModule.prototype.require = function(path) {
           contents.setMaxListeners(30);
         }
       });
+      
+      // Override version getter if possible
+      const originalGetVersion = electron.app.getVersion;
+      electron.app.getVersion = function() {
+        return CMGR_APP_VERSION;
+      };
+      
+      // Add name instance info to app name
+      const originalName = electron.app.name || "Claude";
+      electron.app.name = \`\${originalName} (${instanceName})\`;
+      
+      // Override getName function if it exists
+      if (typeof electron.app.getName === 'function') {
+        const originalGetName = electron.app.getName;
+        electron.app.getName = function() {
+          return \`\${originalGetName.call(this)} (${instanceName})\`;
+        };
+      }
     }
     
     // Customize BrowserWindow for instance name
@@ -203,6 +301,24 @@ originalModule.prototype.require = function(path) {
     electron.BrowserWindow = CustomBrowserWindow;
     
     return electron;
+  }
+  
+  // Patch electron-updater if used
+  if (path === 'electron-updater' || path.includes('electron-updater')) {
+    try {
+      const updater = result;
+      if (updater && updater.AppUpdater) {
+        const originalGetVersion = updater.AppUpdater.prototype.getCurrentVersion;
+        if (originalGetVersion) {
+          updater.AppUpdater.prototype.getCurrentVersion = function() {
+            return CMGR_APP_VERSION;
+          };
+          console.log('Patched electron-updater getCurrentVersion');
+        }
+      }
+    } catch (err) {
+      // Ignore errors when patching updater
+    }
   }
   
   return result;

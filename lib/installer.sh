@@ -72,8 +72,19 @@ build_and_cache_claude() {
     fi
     log_info "Download complete"
     
-    # Extract version from the installer filename
-    local VERSION=$(basename "${CLAUDE_DOWNLOAD_URL}" | grep -oP 'Claude-Setup-x64\.exe' | sed 's/Claude-Setup-x64\.exe/0.9.3/')
+    # Extract version from the installer filename - dynamically determine it
+    # Use a timestamp-based version if we can't extract it from the filename
+    local VERSION
+    if [[ "${CLAUDE_DOWNLOAD_URL}" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+        # Extract version using regex match if it's in the URL
+        VERSION="${BASH_REMATCH[1]}"
+    else
+        # Try to find from nested files later
+        VERSION="1.0.0-$(date +%Y%m%d)"
+    fi
+    
+    # Log the detected version
+    log_info "Using Claude Desktop version: ${VERSION}"
     local PACKAGE_NAME="claude-desktop"
     local ARCHITECTURE="amd64"
     local MAINTAINER="Claude Desktop Linux Maintainers"
