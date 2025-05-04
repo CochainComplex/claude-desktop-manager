@@ -88,25 +88,92 @@ build_and_cache_claude() {
         return 1
     fi
     
-    if ! 7z x -y "AnthropicClaude-${VERSION}-full.nupkg"; then
-        log_error "Failed to extract nupkg"
+    # Find the .nupkg file dynamically instead of hardcoding the name
+    local nupkg_file=$(find . -name "*.nupkg" | grep -i "AnthropicClaude" | head -1)
+    if [ -z "$nupkg_file" ]; then
+        # Fallback: try to find any .nupkg file
+        nupkg_file=$(find . -name "*.nupkg" | head -1)
+    fi
+    
+    if [ -z "$nupkg_file" ]; then
+        log_error "Failed to find any .nupkg file after extraction"
+        rm -rf "${build_dir}"
+        return 1
+    fi
+    
+    log_info "Found package file: $nupkg_file"
+    
+    if ! 7z x -y "$nupkg_file"; then
+        log_error "Failed to extract nupkg: $nupkg_file"
         rm -rf "${build_dir}"
         return 1
     fi
     log_info "Resources extracted"
     
-    # Extract and convert icons
+    # Find claude.exe or similar dynamically and extract icons
     log_info "Processing icons..."
-    if ! wrestool -x -t 14 "lib/net45/claude.exe" -o claude.ico; then
-        log_error "Failed to extract icons from exe"
-        rm -rf "${build_dir}"
-        return 1
+    local claude_exe_path=$(find . -name "claude.exe" | head -1)
+    
+    # If not found, try to find any .exe file that might contain the icons
+    if [ -z "$claude_exe_path" ]; then
+        claude_exe_path=$(find . -name "*.exe" | grep -v "Claude-Setup" | head -1)
     fi
     
+    if [ -z "$claude_exe_path" ]; then
+        log_warn "Could not find claude.exe or similar. Looking for icons elsewhere..."
+        # Try to find .ico files directly
+        local ico_file=$(find . -name "*.ico" | head -1)
+        if [ -n "$ico_file" ]; then
+            log_info "Found icon file: $ico_file"
+            cp "$ico_file" claude.ico
+        else
+            log_warn "No .ico files found. Creating default icon."
+            # Create a simple placeholder icon
+            echo -e "\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x04\x00\x28\x01\x00\x00\x16\x00\x00\x00\x28\x00\x00\x00\x10\x00\x00\x00\x20\x00\x00\x00\x01\x00\x04\x00\x00\x00\x00\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x00\x00\x80\x00\x00\x00\x80\x80\x00\x80\x00\x00\x00\x80\x00\x80\x00\x80\x80\x00\x00\xc0\xc0\xc0\x00\x80\x80\x80\x00\x00\x00\xff\x00\x00\xff\x00\x00\x00\xff\xff\x00\xff\x00\x00\x00\xff\x00\xff\x00\xff\xff\x00\x00\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" > claude.ico
+        fi
+    else
+        log_info "Found executable for icon extraction: $claude_exe_path"
+        if ! wrestool -x -t 14 "$claude_exe_path" -o claude.ico; then
+            log_warn "Failed to extract icons from exe using wrestool, trying alternative methods..."
+            # Try to find .ico files directly as fallback
+            local ico_file=$(find . -name "*.ico" | head -1)
+            if [ -n "$ico_file" ]; then
+                log_info "Found icon file: $ico_file"
+                cp "$ico_file" claude.ico
+            else
+                log_warn "No .ico files found. Installation will continue without proper icons."
+                # Create an empty icon file to prevent later steps from failing
+                echo -e "\x00\x00\x01\x00" > claude.ico
+            fi
+        fi
+    fi
+    
+    # Make icon conversion more resilient
     if ! icotool -x claude.ico; then
-        log_error "Failed to convert icons"
-        rm -rf "${build_dir}"
-        return 1
+        log_warn "Failed to convert icons with icotool, trying alternate approach..."
+        
+        # Create basic PNGs for different sizes
+        for size in 16 24 32 48 64 256; do
+            convert -size ${size}x${size} xc:transparent -fill darkblue -draw "circle $((size/2)),$((size/2)) $((size/2)),$((size-5))" "claude_$((14-size/16))_${size}x${size}x32.png" 2>/dev/null || \
+            echo "P3
+$size $size
+255
+" > "claude_$((14-size/16))_${size}x${size}x32.ppm" && \
+            for ((i=0; i<size*size; i++)); do 
+                echo "128 128 255 "; 
+            done >> "claude_$((14-size/16))_${size}x${size}x32.ppm" && \
+            convert "claude_$((14-size/16))_${size}x${size}x32.ppm" "claude_$((14-size/16))_${size}x${size}x32.png" 2>/dev/null || true
+            
+            # If files still don't exist, create empty ones to prevent later failures
+            if [ ! -f "claude_$((14-size/16))_${size}x${size}x32.png" ]; then
+                log_warn "Failed to create ${size}x${size} icon, using placeholder"
+                echo "P3
+1 1
+255
+0 0 255" > "claude_$((14-size/16))_${size}x${size}x32.ppm"
+                convert "claude_$((14-size/16))_${size}x${size}x32.ppm" "claude_$((14-size/16))_${size}x${size}x32.png" 2>/dev/null || touch "claude_$((14-size/16))_${size}x${size}x32.png"
+            fi
+        done
     fi
     log_info "Icons processed"
     
@@ -132,10 +199,31 @@ build_and_cache_claude() {
         fi
     done
     
-    # Process app.asar
+    # Process app.asar - find the correct paths dynamically
     mkdir -p electron-app
-    cp "lib/net45/resources/app.asar" electron-app/
-    cp -r "lib/net45/resources/app.asar.unpacked" electron-app/
+    
+    # Find app.asar and app.asar.unpacked dynamically
+    local app_asar_path=$(find . -name "app.asar" | grep -v "electron-app" | head -1)
+    local app_asar_unpacked_path=$(find . -name "app.asar.unpacked" -type d | grep -v "electron-app" | head -1)
+    
+    if [ -z "$app_asar_path" ]; then
+        log_error "Could not find app.asar file"
+        log_info "Searching for any .asar files:"
+        find . -name "*.asar" | xargs -I{} log_info "Found: {}"
+        rm -rf "${build_dir}"
+        return 1
+    fi
+    
+    log_info "Found app.asar at: $app_asar_path"
+    cp "$app_asar_path" electron-app/
+    
+    # Copy app.asar.unpacked if it exists
+    if [ -n "$app_asar_unpacked_path" ] && [ -d "$app_asar_unpacked_path" ]; then
+        log_info "Found app.asar.unpacked at: $app_asar_unpacked_path"
+        cp -r "$app_asar_unpacked_path" electron-app/
+    else
+        log_warn "app.asar.unpacked directory not found, continuing anyway"
+    fi
     
     cd electron-app
     npx asar extract app.asar app.asar.contents
