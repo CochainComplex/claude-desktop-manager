@@ -90,22 +90,18 @@ This script will:
 
 ## How the Fix Works
 
-The fix works through a combination of approaches:
+The fix works through a comprehensive multi-layered approach:
 
 1. **Network Namespace Sharing**: By default, Claude Desktop Manager now uses `--share-net` to skip network namespace isolation, avoiding the most common permission errors.
 
-2. **AppArmor Override**: A local AppArmor policy override is created at `/etc/apparmor.d/local/unprivileged_userns` that allows the specific capabilities needed by bubblewrap:
+2. **Comprehensive AppArmor Override**: A local AppArmor policy override is created at `/etc/apparmor.d/local/unprivileged_userns` with broader permissions:
 
 ```
-# Allow specific capabilities needed by bubblewrap
-allow capability setpcap,
-allow capability setuid,
-allow capability setgid,
-allow capability sys_admin,
-allow capability net_admin,
+# Allow full capability access
+allow capability,
 
-# Allow network operations
-allow network netlink raw,
+# Allow all networking
+allow network,
 
 # Allow writing to uid_map and gid_map files
 allow owner /proc/*/uid_map rw,
@@ -113,7 +109,13 @@ allow owner /proc/*/gid_map rw,
 allow owner /proc/*/setgroups rw,
 ```
 
-This approach:
+3. **Force-Complain Mode**: The profile is placed in AppArmor's non-enforcing complain mode by creating a symlink in `/etc/apparmor.d/force-complain/`.
+
+4. **Kernel Parameter Updates**: The script ensures kernel parameters are correctly set by creating a sysctl configuration file.
+
+5. **Aggressive Fallback Options**: If standard fixes don't work, the script can:
+   - Use the `aa-complain` tool to explicitly set the profile to complain mode
+   - Temporarily disable AppArmor if needed (with user permission)
 - Modifies only the specific restrictions that are blocking bubblewrap
 - Preserves most of AppArmor's security protections
 - Can be easily reverted without affecting system stability

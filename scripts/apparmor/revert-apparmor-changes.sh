@@ -97,10 +97,31 @@ revert_changes() {
         echo -e "${GREEN}✓ Removed local override for unprivileged_userns${NC}"
     fi
     
+    # Remove force-complain symlink if exists
+    if [ -L "/etc/apparmor.d/force-complain/unprivileged_userns" ]; then
+        rm -f "/etc/apparmor.d/force-complain/unprivileged_userns"
+        echo -e "${GREEN}✓ Removed force-complain symlink for unprivileged_userns${NC}"
+    fi
+    
     # Remove marker file
     if [ -f "/etc/apparmor.d/local/.cmgr-apparmor-fix-applied" ]; then
         rm -f "/etc/apparmor.d/local/.cmgr-apparmor-fix-applied"
         echo -e "${GREEN}✓ Removed marker file${NC}"
+    fi
+    
+    # Restore kernel parameters if we changed them
+    if [ -f "/etc/sysctl.d/99-userns.conf" ] && grep -q "unprivileged_userns_clone" "/etc/sysctl.d/99-userns.conf"; then
+        echo -e "${BLUE}Found kernel parameter configuration file.${NC}"
+        echo -e "${YELLOW}Do you want to remove it and restore default kernel parameters? (y/n)${NC}"
+        read -r kernel_response
+        if [[ "$kernel_response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+            rm -f "/etc/sysctl.d/99-userns.conf"
+            echo -e "${GREEN}✓ Removed kernel parameter configuration${NC}"
+            echo -e "${YELLOW}Note: This change will take effect after reboot${NC}"
+            echo -e "${YELLOW}     or after running 'sudo sysctl --system'${NC}"
+        else
+            echo -e "${YELLOW}Keeping kernel parameter configuration${NC}"
+        fi
     fi
     
     # Restore from backup if available
@@ -125,12 +146,20 @@ revert_changes() {
         echo -e "${GREEN}✓ AppArmor reloaded successfully${NC}"
     else
         echo -e "${RED}✗ Failed to reload AppArmor${NC}"
-        echo "Please reload AppArmor manually with: sudo systemctl reload apparmor"
-        return 1
+        echo "Trying to restart AppArmor instead..."
+        if systemctl restart apparmor; then
+            echo -e "${GREEN}✓ AppArmor restarted successfully${NC}"
+        else
+            echo -e "${RED}✗ Failed to restart AppArmor${NC}"
+            echo "Please reload or restart AppArmor manually with:"
+            echo "sudo systemctl restart apparmor"
+            return 1
+        fi
     fi
     
     # Allow a moment for changes to take effect
-    sleep 2
+    echo -e "${BLUE}Waiting for changes to take effect...${NC}"
+    sleep 3
     
     return 0
 }
@@ -147,14 +176,30 @@ validate_revert() {
         echo -e "${GREEN}✓ Local override successfully removed${NC}"
     fi
     
-    # Check if bubblewrap now fails as expected
-    if ! su -c "bwrap --unshare-all --bind / / echo 'Bubblewrap test'" $SUDO_USER &>/dev/null; then
-        echo -e "${GREEN}✓ Bubblewrap correctly fails with unprivileged user namespaces${NC}"
+    # Check if force-complain symlink is gone
+    if [ -L "/etc/apparmor.d/force-complain/unprivileged_userns" ]; then
+        echo -e "${RED}✗ Force-complain symlink still exists${NC}"
+        return 1
+    else
+        echo -e "${GREEN}✓ Force-complain symlink successfully removed${NC}"
+    fi
+    
+    # Check if bubblewrap now fails as expected with different isolation modes
+    echo -e "${BLUE}Testing bubblewrap with full isolation...${NC}"
+    if ! bwrap --unshare-all --bind / / echo 'Bubblewrap test' &>/dev/null; then
+        echo -e "${GREEN}✓ Bubblewrap with full isolation correctly fails${NC}"
+    else
+        echo -e "${YELLOW}⚠ Bubblewrap with full isolation still works${NC}"
+        echo -e "${YELLOW}  This might indicate that other system settings are allowing it${NC}"
+    fi
+    
+    echo -e "${BLUE}Testing bubblewrap with shared network...${NC}"
+    if ! bwrap --share-net --unshare-user --unshare-pid --unshare-uts --unshare-ipc --bind / / echo 'Bubblewrap test' &>/dev/null; then
+        echo -e "${GREEN}✓ Bubblewrap with shared network correctly fails${NC}"
         echo -e "${GREEN}  This confirms that AppArmor restrictions are back in place${NC}"
     else
-        echo -e "${YELLOW}⚠ Bubblewrap still works with unprivileged user namespaces${NC}"
-        echo -e "${YELLOW}  This might indicate that other system settings are allowing it${NC}"
-        echo -e "${YELLOW}  (This is not necessarily a problem, just unexpected)${NC}"
+        echo -e "${YELLOW}⚠ Bubblewrap with shared network still works${NC}"
+        echo -e "${YELLOW}  Consider rebooting your system for changes to take full effect${NC}"
     fi
     
     return 0

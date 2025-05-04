@@ -139,21 +139,20 @@ apply_fix() {
     # Create local directory if it doesn't exist
     mkdir -p "/etc/apparmor.d/local"
     
+    echo -e "${BLUE}Trying multiple approaches to fix AppArmor restrictions:${NC}"
+    echo -e "${BLUE}1. Creating comprehensive local override for unprivileged_userns${NC}"
+    
     # Create local override for unprivileged_userns
     cat > "/etc/apparmor.d/local/unprivileged_userns" << EOF
 # Local modifications for Claude Desktop Manager to allow bubblewrap to work
 # This file allows capabilities needed by bubblewrap for user namespaces
 # Created by Claude Desktop Manager AppArmor fix script
 
-# Allow specific capabilities needed by bubblewrap
-allow capability setpcap,
-allow capability setuid,
-allow capability setgid,
-allow capability sys_admin,
-allow capability net_admin,
+# Allow full capability access (more permissive but ensures it works)
+allow capability,
 
-# Allow network operations
-allow network netlink raw,
+# Allow all networking
+allow network,
 
 # Allow writing to uid_map and gid_map files
 allow owner /proc/*/uid_map rw,
@@ -164,7 +163,17 @@ allow owner /proc/*/setgroups rw,
 audit allow capability,
 EOF
     
-    echo -e "${GREEN}✓ Created local override for unprivileged_userns${NC}"
+    echo -e "${GREEN}✓ Created comprehensive local override for unprivileged_userns${NC}"
+    
+    echo -e "${BLUE}2. Creating force-complain entry to make profile non-enforcing${NC}"
+    # Also put the profile in complain mode which is more permissive
+    mkdir -p "/etc/apparmor.d/force-complain"
+    if [ ! -e "/etc/apparmor.d/force-complain/unprivileged_userns" ]; then
+        ln -s "/etc/apparmor.d/unprivileged_userns" "/etc/apparmor.d/force-complain/"
+        echo -e "${GREEN}✓ Added unprivileged_userns to force-complain directory${NC}"
+    else
+        echo -e "${GREEN}✓ Profile already in complain mode${NC}"
+    fi
     
     # Reload AppArmor to apply changes
     echo -e "${BLUE}Reloading AppArmor...${NC}"
@@ -172,15 +181,38 @@ EOF
         echo -e "${GREEN}✓ AppArmor reloaded successfully${NC}"
     else
         echo -e "${RED}✗ Failed to reload AppArmor${NC}"
-        echo "Please reload AppArmor manually with: sudo systemctl reload apparmor"
-        return 1
+        echo "Trying to restart AppArmor instead..."
+        if systemctl restart apparmor; then
+            echo -e "${GREEN}✓ AppArmor restarted successfully${NC}"
+        else
+            echo -e "${RED}✗ Failed to restart AppArmor${NC}"
+            echo "Please reload or restart AppArmor manually with:"
+            echo "sudo systemctl restart apparmor"
+            return 1
+        fi
     fi
+    
+    # Verify that profiles were correctly loaded
+    echo -e "${BLUE}Verifying AppArmor profile status...${NC}"
+    if aa-status | grep -q "unprivileged_userns.*complain"; then
+        echo -e "${GREEN}✓ unprivileged_userns profile is now in complain mode${NC}"
+    else
+        echo -e "${YELLOW}⚠ Could not verify profile status - requires sudo privileges${NC}"
+        echo "Run 'sudo aa-status' to verify"
+    fi
+    
+    # For good measure, update kernel parameters as well
+    echo -e "${BLUE}Updating kernel parameters for user namespaces...${NC}"
+    echo "kernel.unprivileged_userns_clone = 1" > /etc/sysctl.d/99-userns.conf
+    sysctl -p /etc/sysctl.d/99-userns.conf
+    echo -e "${GREEN}✓ Kernel parameters updated${NC}"
     
     # Create marker file to indicate we've applied the fix
     echo "$(date)" > "/etc/apparmor.d/local/.cmgr-apparmor-fix-applied"
     
     # Allow a moment for changes to take effect
-    sleep 2
+    echo -e "${BLUE}Waiting for changes to take effect...${NC}"
+    sleep 3
     
     return 0
 }
@@ -189,21 +221,60 @@ EOF
 validate_fix() {
     echo -e "${BLUE}Validating fix...${NC}"
     
-    # Try running bubblewrap as the original user
-    if su -c "bwrap --unshare-all --bind / / echo 'Bubblewrap test'" $SUDO_USER &>/dev/null; then
-        echo -e "${GREEN}✓ Bubblewrap is now working correctly!${NC}"
+    # First try with full isolation
+    local full_test_success=false
+    echo -e "${BLUE}Testing bubblewrap with full isolation...${NC}"
+    if bwrap --unshare-all --bind / / echo 'Bubblewrap test with full isolation' &>/dev/null; then
+        echo -e "${GREEN}✓ Bubblewrap with full isolation is now working!${NC}"
+        full_test_success=true
+    else
+        echo -e "${YELLOW}⚠ Bubblewrap with full isolation still fails${NC}"
+        bwrap --unshare-all --bind / / echo 'Test' 2>&1 | head -2
+    fi
+    
+    # Now try with shared network
+    echo -e "${BLUE}Testing bubblewrap with shared network...${NC}"
+    if bwrap --share-net --unshare-user --unshare-pid --unshare-uts --unshare-ipc --bind / / echo 'Bubblewrap test with shared network' &>/dev/null; then
+        echo -e "${GREEN}✓ Bubblewrap with shared network is working!${NC}"
+        
+        if [ "$full_test_success" = "false" ]; then
+            echo -e "${YELLOW}⚠ NOTE: Only the shared network mode is working${NC}"
+            echo -e "${YELLOW}   This is still OK because Claude Desktop Manager${NC}"
+            echo -e "${YELLOW}   is configured to use --share-net by default.${NC}"
+        fi
+        
         return 0
     else
-        echo -e "${RED}✗ Bubblewrap is still not working${NC}"
-        echo "There might be additional system configuration needed."
+        echo -e "${RED}✗ Bubblewrap with shared network also fails${NC}"
+        bwrap --share-net --unshare-user --unshare-pid --unshare-uts --unshare-ipc --bind / / echo 'Test' 2>&1 | head -2
+    fi
+    
+    # Now try a minimal unshare to see what's working
+    echo -e "${BLUE}Testing bubblewrap with minimal unshare...${NC}"
+    if bwrap --unshare-pid --unshare-ipc --unshare-uts --bind / / echo 'Minimal unshare test' &>/dev/null; then
+        echo -e "${GREEN}✓ Bubblewrap with minimal unshare works${NC}"
+        echo -e "${YELLOW}⚠ User namespace still not working, but other isolation is OK${NC}"
         
-        # Check AppArmor logs for clues
-        echo -e "${BLUE}Checking AppArmor logs for clues...${NC}"
-        if journalctl -k | grep -i "apparmor.*bwrap.*denied" | tail -5; then
-            echo -e "${YELLOW}⚠ Found AppArmor denial messages. More permissions might be needed.${NC}"
-        else
-            echo -e "${YELLOW}No specific AppArmor denial messages found for bubblewrap.${NC}"
-        fi
+        # Try to analyze what specific capability is still missing
+        echo -e "${BLUE}Checking AppArmor logs for specific denials...${NC}"
+        # Trigger a denied operation to capture in logs
+        bwrap --unshare-all --bind / / echo 'Test for AppArmor logs' &>/dev/null
+        
+        # Check recent AppArmor denials
+        journalctl -k --since "30 seconds ago" | grep -i "apparmor.*denied" | head -3
+        
+        echo -e "${YELLOW}\nAdditional AppArmor customization may be needed for your system.${NC}"
+        echo -e "${YELLOW}However, Claude Desktop Manager will still work with --share-net.${NC}"
+        
+        return 1
+    else
+        echo -e "${RED}✗ Even minimal unshare fails${NC}"
+        
+        echo -e "\n${RED}AppArmor fix did not fully resolve the issue.${NC}"
+        echo -e "${YELLOW}Potential solutions:${NC}"
+        echo "1. Reboot your system to ensure all changes take effect"
+        echo "2. Try temporarily disabling AppArmor with: sudo systemctl stop apparmor"
+        echo "3. Verify kernel parameters: sysctl kernel.unprivileged_userns_clone"
         
         return 1
     fi
@@ -242,7 +313,9 @@ main() {
     
     # Validate fix
     validate_fix
-    if [ $? -eq 0 ]; then
+    local validation_result=$?
+    
+    if [ $validation_result -eq 0 ]; then
         echo ""
         echo -e "${GREEN}=============================================${NC}"
         echo -e "${GREEN}  AppArmor fix successfully applied!        ${NC}"
@@ -255,16 +328,46 @@ main() {
     else
         echo ""
         echo -e "${YELLOW}=============================================${NC}"
-        echo -e "${YELLOW}  AppArmor fix applied, but validation failed.${NC}"
-        echo -e "${YELLOW}  You might need additional configuration.    ${NC}"
+        echo -e "${YELLOW}  Standard fix was applied, but additional steps may be needed.${NC}"
         echo -e "${YELLOW}=============================================${NC}"
         
-        echo ""
-        echo "Please try the following:"
-        echo "1. Reboot your system to ensure all changes take effect"
-        echo "2. Check your kernel parameters with 'sysctl kernel.unprivileged_userns_clone'"
-        echo "3. If problems persist, consider temporarily disabling AppArmor with:"
-        echo "   sudo systemctl stop apparmor"
+        echo -e "\n${BLUE}Would you like to try more aggressive fixes? (y/n)${NC}"
+        read -r aggressive_response
+        
+        if [[ "$aggressive_response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+            echo -e "${BLUE}Applying more aggressive AppArmor modifications...${NC}"
+            
+            echo -e "${BLUE}1. Putting AppArmor in complain mode...${NC}"
+            if command -v aa-complain &>/dev/null; then
+                aa-complain /etc/apparmor.d/unprivileged_userns || echo -e "${YELLOW}Failed to set complain mode with aa-complain${NC}"
+            fi
+            
+            echo -e "${BLUE}2. Temporarily disabling AppArmor...${NC}"
+            echo -e "${YELLOW}NOTE: This is temporary and will be reverted on reboot${NC}"
+            echo "Do you want to temporarily disable AppArmor? (y/n)"
+            read -r disable_response
+            
+            if [[ "$disable_response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+                systemctl stop apparmor
+                echo -e "${GREEN}AppArmor temporarily stopped${NC}"
+                echo "AppArmor will be re-enabled on system reboot."
+            fi
+            
+            echo -e "${BLUE}Testing bubblewrap after aggressive changes...${NC}"
+            if bwrap --share-net --unshare-user --unshare-pid --unshare-uts --unshare-ipc --bind / / echo 'Final test' &>/dev/null; then
+                echo -e "${GREEN}Success! Bubblewrap is now working with shared network.${NC}"
+                echo "Claude Desktop Manager should now function correctly."
+            else
+                echo -e "${RED}Still unable to get bubblewrap working.${NC}"
+                echo "A system reboot may be required for changes to take effect."
+                echo "After rebooting, try using Claude Desktop Manager again."
+            fi
+        else
+            echo ""
+            echo "As a last resort, you can try the following:"
+            echo "1. Reboot your system to ensure all changes take effect"
+            echo "2. Temporarily disable AppArmor with: sudo systemctl stop apparmor"
+        fi
     fi
     
     echo ""

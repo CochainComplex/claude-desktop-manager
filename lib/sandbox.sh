@@ -323,6 +323,22 @@ run_in_sandbox() {
             echo "  2. Try your operation again"
             echo ""
             echo "For more information, see README-APPARMOR.md"
+        elif [[ "$error_output" == *"loopback: Failed RTM_NEWADDR: Operation not permitted"* ]]; then
+            echo -e "\033[1;31mERROR: bubblewrap cannot configure network interfaces\033[0m"
+            echo "This is likely due to AppArmor network restrictions on Ubuntu 24.04."
+            echo "To fix this issue:"
+            echo "  1. Run: sudo $(dirname "$0")/../scripts/apparmor/fix-apparmor.sh"
+            echo "  2. Try your operation again"
+            echo ""
+            echo "For more information, see README-APPARMOR.md"
+        elif [[ "$error_output" == *"cannot create .* namespace: Operation not permitted"* ]]; then
+            echo -e "\033[1;31mERROR: bubblewrap cannot create necessary namespaces\033[0m"
+            echo "This is likely due to AppArmor restrictions on Ubuntu 24.04."
+            echo "To fix this issue:"
+            echo "  1. Run: sudo $(dirname "$0")/../scripts/apparmor/fix-apparmor.sh"
+            echo "  2. Try your operation again"
+            echo ""
+            echo "For more information, see README-APPARMOR.md"
         else
             # Display the original error
             echo "$error_output"
