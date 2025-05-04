@@ -255,15 +255,19 @@ originalModule.prototype.require = function(path) {
       };
       
       // Add name instance info to app name
-      const originalName = electron.app.name || "Claude";
-      electron.app.name = \`\${originalName} (${instanceName})\`;
+      electron.app.name = `Claude (${instanceName})`;
       
       // Override getName function if it exists
       if (typeof electron.app.getName === 'function') {
         const originalGetName = electron.app.getName;
         electron.app.getName = function() {
-          return \`\${originalGetName.call(this)} (${instanceName})\`;
+          return `Claude (${instanceName})`;
         };
+      }
+      
+      // Set application user model ID for Windows taskbar grouping
+      if (process.platform === 'win32' && typeof electron.app.setAppUserModelId === 'function') {
+        electron.app.setAppUserModelId(`Claude.Desktop.${instanceName}`);
       }
     }
     
@@ -276,6 +280,17 @@ originalModule.prototype.require = function(path) {
           options.title = \`\${options.title} (${instanceName})\`;
         } else {
           options.title = \`Claude (${instanceName})\`;
+        }
+        
+        // Set correct window class for Linux window managers
+        if (!options.webPreferences) {
+          options.webPreferences = {};
+        }
+        
+        // Set app ID for proper window grouping
+        if (process.platform === 'linux') {
+          options.icon = options.icon || '/usr/share/icons/hicolor/256x256/apps/claude-desktop.png';
+          options.wm_class = `Claude-${instanceName}`;
         }
         
         // Call original constructor with modified options

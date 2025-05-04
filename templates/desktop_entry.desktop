@@ -6,5 +6,5 @@ Icon=claude-desktop
 Type=Application
 Terminal=false
 Categories=Office;Utility;Network;
-StartupWMClass=Claude
+StartupWMClass=Claude-{instance}
 X-CMGR-Instance={instance}

@@ -762,7 +762,7 @@ fi
 echo "Creating desktop entry for instance '${instance_name}'..."
 cat > "\$HOME/.local/share/applications/claude-desktop-${instance_name}.desktop" << EOF2
 [Desktop Entry]
-Name=Claude Desktop (${instance_name})
+Name=Claude (${instance_name})
 Comment=Claude Desktop AI Assistant (${instance_name} instance)
 Exec=env CLAUDE_INSTANCE=${instance_name} LIBVA_DRIVER_NAME=dummy "\$HOME/.local/bin/claude-desktop" --disable-gpu --no-sandbox --disable-dev-shm-usage --js-flags="--expose-gc" --preload="\$HOME/.config/claude-desktop/preload.js" %u
 Icon=claude-desktop
@@ -771,6 +771,7 @@ Terminal=false
 Categories=Office;Utility;Network;
 MimeType=x-scheme-handler/claude;
 StartupWMClass=Claude-${instance_name}
+X-CMGR-Instance=${instance_name}
 EOF2
 
 # Cleanup

@@ -70,9 +70,17 @@ if (typeof window !== 'undefined' && instanceName) {
   const updateTitle = () => {
     const originalTitle = document.title;
     
+    // Format for consistency: "Claude (instance_name)"
+    const instanceMarker = ` (${instanceName})`;
+    
     // Only update if the title doesn't already contain our instance name
-    if (!originalTitle.includes(`[${instanceName}]`)) {
-      document.title = `${originalTitle} [${instanceName}]`;
+    if (!originalTitle.includes(instanceMarker)) {
+      // If title already has a basic format (like "Claude"), replace it
+      if (originalTitle.match(/^Claude\b/)) {
+        document.title = `Claude${instanceMarker}`;
+      } else {
+        document.title = `${originalTitle}${instanceMarker}`;
+      }
       console.log('CMGR: Updated window title to:', document.title);
     }
   };
@@ -88,7 +96,8 @@ if (typeof window !== 'undefined' && instanceName) {
   // Set up a MutationObserver to detect title changes
   const titleObserver = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
-      if (document.title && !document.title.includes(`[${instanceName}]`)) {
+      const instanceMarker = ` (${instanceName})`;
+      if (document.title && !document.title.includes(instanceMarker)) {
         updateTitle();
       }
     });
@@ -122,6 +131,12 @@ if (typeof window !== 'undefined' && instanceName) {
       bodyObserver.observe(document.body, { childList: true, subtree: true });
     });
   }
+
+  // Also set a meta tag with the instance name for potential future use
+  const metaTag = document.createElement('meta');
+  metaTag.name = 'claude-instance';
+  metaTag.content = instanceName;
+  document.head.appendChild(metaTag);
 }
 
 // Suppress specific warnings by overriding console.warn
