@@ -104,6 +104,9 @@ cmgr create research --format=appimage --mcp-auto-approve
 # Create instance without port management (not recommended)
 cmgr create legacy --no-ports
 
+# Create instance and force rebuild of Claude Desktop package
+cmgr create work --force-rebuild
+
 # Configure global shortcut for an instance
 cmgr config work --global-shortcut="CommandOrControl+Shift+A"
 

@@ -73,7 +73,7 @@ build_and_cache_claude() {
     log_info "Download complete"
     
     # Extract version from the installer filename
-    local VERSION=$(basename "${CLAUDE_DOWNLOAD_URL}" | grep -oP 'Claude-Setup-x64\.exe' | sed 's/Claude-Setup-x64\.exe/0.9.2/')
+    local VERSION=$(basename "${CLAUDE_DOWNLOAD_URL}" | grep -oP 'Claude-Setup-x64\.exe' | sed 's/Claude-Setup-x64\.exe/0.9.3/')
     local PACKAGE_NAME="claude-desktop"
     local ARCHITECTURE="amd64"
     local MAINTAINER="Claude Desktop Linux Maintainers"
@@ -797,6 +797,7 @@ EOF
 install_claude_in_sandbox() {
     local sandbox_name="$1"
     local build_format="${2:-deb}"
+    local force_rebuild="${3:-false}"
     
     # Check if cache exists
     local cache_dir="${CMGR_CACHE}"
@@ -805,9 +806,13 @@ install_claude_in_sandbox() {
     # Ensure cache directory exists
     mkdir -p "${cache_dir}"
     
-    # Build Claude Desktop if no cached version exists
-    if [ ! -f "$metadata_file" ]; then
-        log_info "No cached Claude Desktop build found. Building now..."
+    # Build Claude Desktop if no cached version exists or force rebuild is true
+    if [ ! -f "$metadata_file" ] || [ "$force_rebuild" = "true" ]; then
+        if [ "$force_rebuild" = "true" ]; then
+            log_info "Force rebuilding Claude Desktop..."
+        else
+            log_info "No cached Claude Desktop build found. Building now..."
+        fi
         if ! build_and_cache_claude "$build_format"; then
             log_error "Failed to build Claude Desktop."
             return 1

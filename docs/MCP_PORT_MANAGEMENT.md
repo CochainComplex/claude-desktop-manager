@@ -58,6 +58,7 @@ The port assignments are automatically applied through:
 The following commands manage MCP port configuration:
 
 - `cmgr create <instance> [--no-ports]` - Create an instance with automatic port allocation (default)
+- `cmgr create <instance> [--force-rebuild]` - Create an instance and force rebuild the Claude Desktop package
 - `cmgr mcp <instance> --ports` - Configure unique MCP ports for an existing instance
 - `cmgr mcp <instance> --reset-ports` - Reset the port configuration to defaults
 

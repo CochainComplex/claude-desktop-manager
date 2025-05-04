@@ -170,6 +170,7 @@ create_instance() {
     local build_format="deb"
     local mcp_auto_approve="false"
     local configure_ports="true"
+    local force_rebuild="false"
     
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -187,6 +188,10 @@ create_instance() {
                 ;;
             --no-ports)
                 configure_ports="false"
+                shift
+                ;;
+            --force-rebuild)
+                force_rebuild="true"
                 shift
                 ;;
             *)
@@ -223,7 +228,7 @@ create_instance() {
     fi
     
     # Install Claude Desktop
-    if ! install_claude_in_sandbox "$instance_name" "$build_format"; then
+    if ! install_claude_in_sandbox "$instance_name" "$build_format" "$force_rebuild"; then
         echo "Error: Failed to install Claude Desktop in sandbox."
         # Clean up the instance from registry and remove sandbox
         remove_instance_from_registry "$instance_name"

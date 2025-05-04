@@ -29,6 +29,7 @@ Create Options:
   --format=<deb|appimage>  Specify installation format (default: deb)
   --mcp-auto-approve       Enable automatic approval of MCP tools
   --no-ports               Don't configure unique MCP ports (not recommended)
+  --force-rebuild          Force rebuild of Claude Desktop package even if cached
 
 MCP Options:
   --auto-approve           Enable automatic approval of MCP tools
@@ -43,6 +44,7 @@ Config Options:
 
 Examples:
   cmgr create work --mcp-auto-approve    Create a new instance with MCP auto-approval
+  cmgr create work --force-rebuild       Create instance and rebuild package (ignores cache)
   cmgr start work                         Start the work instance
   cmgr import-config work                 Import MCP config from host to work instance
   cmgr import-config work personal        Import MCP config from personal to work instance
