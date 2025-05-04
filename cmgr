@@ -54,9 +54,22 @@ CMGR_REGISTRY="${CMGR_HOME}/registry.json"
 # Ensure basic directories exist
 mkdir -p "${CMGR_HOME}" "${CMGR_CACHE}" "${SANDBOX_BASE}" "${CMGR_HOME}/logs"
 
-# Initialize registry if it doesn't exist
+# Initialize and validate registry files
 if [ ! -f "${CMGR_REGISTRY}" ]; then
     echo '{"instances": {}}' > "${CMGR_REGISTRY}"
+fi
+
+# Validate main registry
+if ! jq empty "${CMGR_REGISTRY}" 2>/dev/null; then
+    echo "WARNING: Instance registry file is corrupted. Creating backup and reinitializing."
+    cp "${CMGR_REGISTRY}" "${CMGR_REGISTRY}.corrupted.$(date +%s)" 2>/dev/null || true
+    echo '{"instances": {}}' > "${CMGR_REGISTRY}"
+fi
+
+# Validate port registry if it exists
+PORT_REGISTRY="${CMGR_HOME}/port_registry.json"
+if [ -f "${PORT_REGISTRY}" ] && ! jq empty "${PORT_REGISTRY}" 2>/dev/null; then
+    echo "WARNING: Port registry file is corrupted. It will be fixed when MCP tools are configured."
 fi
 
 # Fix ownership if running as root

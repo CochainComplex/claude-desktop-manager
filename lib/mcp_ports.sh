@@ -10,12 +10,37 @@ MCP_BASE_PORT=9000
 # Range size per instance
 MCP_PORT_RANGE=100
 
-# Initialize the port registry if it doesn't exist
+# Initialize the port registry if it doesn't exist or fix it if corrupted
 initialize_port_registry() {
     local port_registry="${CMGR_HOME}/port_registry.json"
     
+    # Create if doesn't exist
     if [ ! -f "$port_registry" ]; then
         echo '{"allocated_ports": {}}' > "$port_registry"
+        return 0
+    fi
+    
+    # Validate JSON content
+    if ! jq empty "$port_registry" 2>/dev/null; then
+        echo "WARNING: Port registry file is corrupted. Creating backup and reinitializing." >&2
+        cp "$port_registry" "${port_registry}.corrupted.$(date +%s)" 2>/dev/null || true
+        echo '{"allocated_ports": {}}' > "$port_registry"
+        
+        # Try to recover allocations by checking sandbox directories
+        if [ -d "${SANDBOX_BASE}" ]; then
+            local instances=($(find "${SANDBOX_BASE}" -maxdepth 1 -type d -not -path "${SANDBOX_BASE}" -exec basename {} \;))
+            local base_port=$MCP_BASE_PORT
+            
+            for instance in "${instances[@]}"; do
+                echo "Recovering port allocation for instance '$instance'" >&2
+                jq --arg name "$instance" \
+                   --arg port "$base_port" \
+                   '.allocated_ports[$name] = ($port | tonumber)' \
+                   "$port_registry" > "${port_registry}.tmp" && \
+                mv "${port_registry}.tmp" "$port_registry"
+                base_port=$((base_port + MCP_PORT_RANGE))
+            done
+        fi
     fi
 }
 
@@ -24,9 +49,15 @@ get_next_port_range() {
     local port_registry="${CMGR_HOME}/port_registry.json"
     initialize_port_registry
     
-    # Read existing allocations
-    local allocations
-    allocations=$(jq -r '.allocated_ports | keys | map(tonumber) | sort | .[-1] // 0' "$port_registry")
+    # Read existing allocations with error handling
+    local allocations=0
+    if jq -r '.allocated_ports | keys | map(tonumber) | sort | .[-1] // 0' "$port_registry" 2>/dev/null > /dev/null; then
+        allocations=$(jq -r '.allocated_ports | keys | map(tonumber) | sort | .[-1] // 0' "$port_registry")
+    else
+        echo "WARNING: Could not read port allocations. Reinitializing port registry." >&2
+        initialize_port_registry
+        allocations=0
+    fi
     
     # Starting point for port search
     local start_base=$((MCP_BASE_PORT + (allocations + 1) * MCP_PORT_RANGE))
@@ -85,12 +116,25 @@ allocate_port_range() {
     local base_port
     base_port=$(get_next_port_range)
     
-    # Update registry
-    jq --arg name "$instance_name" \
-       --arg port "$base_port" \
-       '.allocated_ports[$name] = ($port | tonumber)' \
-       "$port_registry" > "${port_registry}.tmp" && \
-    mv "${port_registry}.tmp" "$port_registry"
+    # Update registry with validation
+    if jq --arg name "$instance_name" \
+          --arg port "$base_port" \
+          '.allocated_ports[$name] = ($port | tonumber)' \
+          "$port_registry" > "${port_registry}.tmp"; then
+        
+        # Validate the new JSON file before replacing the original
+        if jq empty "${port_registry}.tmp" 2>/dev/null; then
+            mv "${port_registry}.tmp" "$port_registry"
+        else
+            echo "ERROR: Generated invalid JSON while updating port registry. Using original file." >&2
+            rm -f "${port_registry}.tmp"
+            return 1
+        fi
+    else
+        echo "ERROR: Failed to update port registry for instance '$instance_name'" >&2
+        rm -f "${port_registry}.tmp"
+        return 1
+    fi
     
     echo "Allocated port range for '$instance_name' starting at $base_port"
     echo "$base_port"
@@ -159,11 +203,24 @@ release_port_range() {
     local port_registry="${CMGR_HOME}/port_registry.json"
     initialize_port_registry
     
-    # Update registry
-    jq --arg name "$instance_name" \
-       'del(.allocated_ports[$name])' \
-       "$port_registry" > "${port_registry}.tmp" && \
-    mv "${port_registry}.tmp" "$port_registry"
+    # Update registry with validation
+    if jq --arg name "$instance_name" \
+          'del(.allocated_ports[$name])' \
+          "$port_registry" > "${port_registry}.tmp"; then
+          
+        # Validate the new JSON file before replacing the original
+        if jq empty "${port_registry}.tmp" 2>/dev/null; then
+            mv "${port_registry}.tmp" "$port_registry"
+        else
+            echo "ERROR: Generated invalid JSON while removing port allocation. Using original file." >&2
+            rm -f "${port_registry}.tmp"
+            return 1
+        fi
+    else
+        echo "ERROR: Failed to release port allocation for instance '$instance_name'" >&2
+        rm -f "${port_registry}.tmp"
+        return 1
+    fi
     
     echo "Released port range for '$instance_name'"
 }
