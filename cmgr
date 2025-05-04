@@ -25,6 +25,7 @@ source "${SCRIPT_DIR}/lib/desktop.sh"
 source "${SCRIPT_DIR}/lib/help.sh"
 source "${SCRIPT_DIR}/lib/patches.sh"
 source "${SCRIPT_DIR}/lib/mcp_ports.sh"
+source "${SCRIPT_DIR}/lib/mcp_gui.sh"
 
 # Check for basic dependencies
 if ! check_dependencies; then
@@ -136,6 +137,11 @@ cmd_execute() {
     local instance_name="$1"
     shift
     execute_claude_command "$instance_name" "$@"
+}
+
+cmd_mcp_gui() {
+    # Launch the global MCP manager GUI
+    launch_mcp_gui
 }
 
 cmd_fix_warnings() {
@@ -1329,6 +1335,9 @@ main() {
             ;;
         build)
             cmd_build "$@"
+            ;;
+        mcp-gui)
+            cmd_mcp_gui
             ;;
         help|--help|-h)
             cmd_help

@@ -25,6 +25,7 @@ Commands:
   verify-isolation <n>   Verify that sandbox isolation is working correctly
   patch-app <n>          Patch app.asar directly with instance name and fix warnings
   build                  Build the latest Claude Desktop .deb package
+  mcp-gui                Launch the global MCP manager GUI
   help                   Show this help message
 
 Create Options:
@@ -58,6 +59,7 @@ Examples:
   cmgr mcp work --ports                   Configure unique MCP ports for work instance
   cmgr mcp work --reset-ports             Reset MCP port configuration for work instance
   cmgr build                              Build the latest Claude Desktop .deb package
+  cmgr mcp-gui                            Launch the global MCP server manager
 
 Multiple Instance Management:
   By default, each Claude Desktop instance is created with unique port ranges for MCP tools
