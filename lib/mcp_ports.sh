@@ -289,9 +289,8 @@ generate_mcp_server_config() {
       "command": "npx",
       "args": [
         "-y",
-        "@modelcontextprotocol/filesystem",
-        "--port",
-        "$(get_tool_port "$instance_name" "filesystem")"
+        "@modelcontextprotocol/server-filesystem",
+        "${sandbox_user_home}"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
@@ -306,9 +305,7 @@ generate_mcp_server_config() {
       "command": "npx",
       "args": [
         "-y",
-        "@modelcontextprotocol/sequential-thinking",
-        "--port",
-        "$(get_tool_port "$instance_name" "sequential-thinking")"
+        "@modelcontextprotocol/server-sequential-thinking"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
@@ -323,9 +320,7 @@ generate_mcp_server_config() {
       "command": "npx",
       "args": [
         "-y",
-        "@modelcontextprotocol/memory",
-        "--port",
-        "$(get_tool_port "$instance_name" "memory")"
+        "@modelcontextprotocol/server-memory"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
@@ -333,16 +328,15 @@ generate_mcp_server_config() {
         "MCP_SERVER_PORT": "$(get_tool_port "$instance_name" "memory")",
         "MCP_BASE_PORT": "$base_port",
         "CLAUDE_INSTANCE": "$instance_name",
-        "HOME": "${sandbox_user_home}"
+        "HOME": "${sandbox_user_home}",
+        "MEMORY_FILE_PATH": "${sandbox_user_home}/.config/claude/memory.json"
       }
     },
     "desktop-commander": {
       "command": "npx",
       "args": [
         "-y",
-        "@modelcontextprotocol/desktop-commander",
-        "--port",
-        "$(get_tool_port "$instance_name" "desktop-commander")"
+        "@wonderwhy-er/desktop-commander"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
@@ -357,9 +351,7 @@ generate_mcp_server_config() {
       "command": "npx",
       "args": [
         "-y",
-        "@modelcontextprotocol/repl",
-        "--port",
-        "$(get_tool_port "$instance_name" "repl")"
+        "@modelcontextprotocol/server-repl"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
@@ -374,9 +366,7 @@ generate_mcp_server_config() {
       "command": "npx",
       "args": [
         "-y",
-        "@executeautomation/playwright-mcp-server",
-        "--port",
-        "$(get_tool_port "$instance_name" "executeautomation-playwright-mcp-server")"
+        "@executeautomation/playwright-mcp-server"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
