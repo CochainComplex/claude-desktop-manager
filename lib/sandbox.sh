@@ -223,8 +223,28 @@ run_in_sandbox() {
     # Our comprehensive isolation approach:
     # 1. We mount tmpfs on /home first (done above in bwrap_cmd initialization)
     # 2. Then we only bind our sandbox directory to /home/claude
-    # This ensures no access to any real home directories
+    # 3. But we also mount specific host paths that were configured
+    # This ensures controlled access to only the specified host directories
     echo "Complete isolation of /home directory with only sandbox access to /home/claude"
+    
+    # Bind-mount any configured host paths for this instance if host_paths.sh is loaded
+    if command -v get_host_paths >/dev/null 2>&1; then
+        echo "Checking for configured host paths to mount"
+        host_paths=$(get_host_paths "$sandbox_name")
+        
+        # Check if jq is present and the output is JSON
+        if command -v jq >/dev/null 2>&1 && [[ "$host_paths" == "["* ]]; then
+            # Parse host paths from JSON and add bind mounts
+            echo "$host_paths" | jq -r '.[]' | while read -r host_path; do
+                if [ -d "$host_path" ]; then
+                    echo "Binding host path: $host_path to same location in sandbox"
+                    bwrap_cmd+=(--bind "$host_path" "$host_path")
+                else
+                    echo "Warning: Host path '$host_path' does not exist or is not a directory"
+                fi
+            done
+        fi
+    fi
     
     # Try to determine the correct display
     local display_to_use="${DISPLAY:-:0}"

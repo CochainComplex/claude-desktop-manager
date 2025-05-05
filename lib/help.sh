@@ -20,6 +20,8 @@ Commands:
   mcp <n> [options]      Configure MCP settings
   import-config <n> [source] Import MCP configuration from host or another instance
   execute <n> [command]  Execute a Claude Desktop command in instance
+  host-path <cmd> <n> [path] Manage host filesystem paths for sandbox access
+  filesystem <n> <path>   Configure MCP filesystem to use a host path
   fix-warnings <n>       Fix MaxListenersExceededWarning in an instance
   update-title <n>       Update window title to show instance name
   verify-isolation <n>   Verify that sandbox isolation is working correctly
@@ -48,6 +50,9 @@ Config Options:
 Examples:
   cmgr create work --mcp-auto-approve    Create a new instance with MCP auto-approval
   cmgr create work --force-rebuild       Create instance and rebuild package (ignores cache)
+  cmgr host-path add work /home/awarth/Projects   Add access to a host directory
+  cmgr host-path list work               List all accessible host paths for an instance
+  cmgr filesystem work /home/awarth/Devstuff   Configure MCP filesystem with host path
   cmgr start work                         Start the work instance
   cmgr import-config work                 Import MCP config from host to work instance
   cmgr import-config work personal        Import MCP config from personal to work instance
@@ -70,6 +75,17 @@ Multiple Instance Management:
     - Default port range starts at 9000
     - Each instance gets a 100-port range (instance1: 9000-9099, instance2: 9100-9199, etc.)
     - Tool-specific ports are assigned within each range
+
+Host Path Management:
+  The Claude Desktop Manager can expose specific host directories to the sandboxed instances
+  while maintaining isolation for the rest of the system. This is particularly useful for 
+  MCP tools like the filesystem server that need to access real files.
+
+  Commands for managing host paths:
+    - host-path add <instance> <path>:   Add a host directory to be accessible in sandbox
+    - host-path remove <instance> <path>: Remove a previously added host path
+    - host-path list <instance>:         List all accessible host paths
+    - filesystem <instance> <path>:      Configure MCP filesystem to use a specific host path
 
 For more information, see the README.md file.
 EOF

@@ -26,6 +26,8 @@ source "${SCRIPT_DIR}/lib/help.sh"
 source "${SCRIPT_DIR}/lib/patches.sh"
 source "${SCRIPT_DIR}/lib/mcp_ports.sh"
 source "${SCRIPT_DIR}/lib/mcp_gui.sh"
+source "${SCRIPT_DIR}/lib/host_paths.sh"
+source "${SCRIPT_DIR}/lib/mcp_filesystem.sh"
 
 # Check for basic dependencies
 if ! check_dependencies; then
@@ -142,6 +144,57 @@ cmd_execute() {
 cmd_mcp_gui() {
     # Launch the global MCP manager GUI
     launch_mcp_gui
+}
+
+cmd_add_host_path() {
+    local instance_name="$1"
+    local host_path="$2"
+    
+    if [ -z "$instance_name" ] || [ -z "$host_path" ]; then
+        echo "Error: Missing instance name or host path"
+        echo "Usage: cmgr host-path add <instance_name> <host_path>"
+        return 1
+    fi
+    
+    add_host_path "$instance_name" "$host_path"
+}
+
+cmd_remove_host_path() {
+    local instance_name="$1"
+    local host_path="$2"
+    
+    if [ -z "$instance_name" ] || [ -z "$host_path" ]; then
+        echo "Error: Missing instance name or host path"
+        echo "Usage: cmgr host-path remove <instance_name> <host_path>"
+        return 1
+    fi
+    
+    remove_host_path "$instance_name" "$host_path"
+}
+
+cmd_list_host_paths() {
+    local instance_name="$1"
+    
+    if [ -z "$instance_name" ]; then
+        echo "Error: Missing instance name"
+        echo "Usage: cmgr host-path list <instance_name>"
+        return 1
+    fi
+    
+    list_host_paths "$instance_name"
+}
+
+cmd_configure_filesystem() {
+    local instance_name="$1"
+    local host_path="$2"
+    
+    if [ -z "$instance_name" ] || [ -z "$host_path" ]; then
+        echo "Error: Missing instance name or host path"
+        echo "Usage: cmgr filesystem <instance_name> <host_path>"
+        return 1
+    fi
+    
+    configure_mcp_filesystem "$instance_name" "$host_path"
 }
 
 cmd_fix_warnings() {
@@ -1338,6 +1391,42 @@ main() {
             ;;
         mcp-gui)
             cmd_mcp_gui
+            ;;
+        host-path)
+            if [ $# -lt 2 ]; then
+                echo "Error: Missing subcommand or instance name"
+                echo "Usage: cmgr host-path <add|remove|list> <instance_name> [host_path]"
+                exit 1
+            fi
+            
+            local subcommand="$1"
+            shift
+            
+            case "$subcommand" in
+                add)
+                    cmd_add_host_path "$@"
+                    ;;
+                remove)
+                    cmd_remove_host_path "$@"
+                    ;;
+                list)
+                    cmd_list_host_paths "$@"
+                    ;;
+                *)
+                    echo "Error: Unknown host-path subcommand '$subcommand'"
+                    echo "Usage: cmgr host-path <add|remove|list> <instance_name> [host_path]"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        filesystem)
+            if [ $# -lt 2 ]; then
+                echo "Error: Missing instance name or host path"
+                echo "Usage: cmgr filesystem <instance_name> <host_path>"
+                exit 1
+            fi
+            
+            cmd_configure_filesystem "$@"
             ;;
         help|--help|-h)
             cmd_help
