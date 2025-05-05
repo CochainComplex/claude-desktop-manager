@@ -27,6 +27,14 @@ This project extends [emsi/claude-desktop](https://github.com/emsi/claude-deskto
 - electron (for application runtime)
 - jq (for JSON processing)
 
+Additional packages for MCP GUI functionality:
+- python3-pyqt5
+- python3-pyqt5.qtwebengine
+- python3-zmq
+- python3-requests
+- python3-jsonschema
+- python3-psutil
+
 ## Installation
 
 1. Clone the repository:
@@ -372,7 +380,22 @@ This makes it significantly easier to:
 3. Maintain consistent configurations across instances
 4. Quickly deploy the same server to multiple instances
 
-The GUI requires PyQt5, which will be automatically installed when you first launch it.
+#### MCP GUI Requirements
+
+The MCP GUI requires the following Python packages:
+
+```bash
+# Install required system packages
+sudo apt install python3-pyqt5 python3-pyqt5.qtwebengine python3-zmq python3-requests python3-jsonschema python3-psutil
+```
+
+These packages provide:
+- **python3-pyqt5**: Qt5 GUI framework for Python
+- **python3-pyqt5.qtwebengine**: Web content rendering for PyQt5
+- **python3-zmq**: ZeroMQ messaging for Python (used for server communication)
+- **python3-requests**: HTTP library for API calls
+- **python3-jsonschema**: JSON Schema validation library
+- **python3-psutil**: Process and system utilities for monitoring
 
 ### Using MCP Tools in Claude
 
