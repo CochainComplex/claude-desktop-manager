@@ -290,7 +290,7 @@ generate_mcp_server_config() {
       "args": [
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "${sandbox_user_home}"
+        "${sandbox_user_home}/share"
       ],
       "env": {
         "DISPLAY": "${DISPLAY:-:0}",
